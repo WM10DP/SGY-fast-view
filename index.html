@@ -3,538 +3,474 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QC Processor Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Sub-Bottom Fast Viewer</title>
+    <!-- Load Plotly for the Navigation Map -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
-        /* Custom Styles & Print Styles */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
         }
 
-        /* Hide elements by default */
-        .hidden-view { display: none !important; }
-
-        /* Custom Scrollbar for inner content */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #f1f1f1; 
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1; 
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8; 
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            background-color: var(--bg-color); 
+            color: var(--text-main);
+            margin: 0; 
+            padding: 30px; 
         }
 
-        /* Select Color States */
-        select.status-pass { background-color: #dcfce7; color: #166534; font-weight: 600; }
-        select.status-fail { background-color: #fee2e2; color: #991b1b; font-weight: 600; }
-        select.status-na { background-color: #e2e8f0; color: #475569; font-weight: 600; }
+        .container { 
+            max-width: 1440px; 
+            margin: auto; 
+        }
 
-        @media print {
-            @page {
-                size: A4 landscape;
-                margin: 1cm;
-            }
-            body {
-                background: white !important;
-                color: black !important;
-            }
-            /* Hide UI components not meant for the printed document */
-            #sidebar, #top-header, .no-print {
-                display: none !important;
-            }
-            #main-content {
-                margin: 0 !important;
-                padding: 0 !important;
-                overflow: visible !important;
-                height: auto !important;
-                display: block !important;
-            }
-            .print-only {
-                display: block !important;
-            }
-            
-            /* Ensure the active sheet is printed, hide dashboard if open */
-            #dashboard-view { display: none !important; }
-            .sheet-view.active-sheet { display: block !important; }
-            .sheet-view:not(.active-sheet) { display: none !important; }
+        header {
+            margin-bottom: 24px;
+        }
 
-            /* Table Print Formatting */
-            table {
-                width: 100% !important;
-                border-collapse: collapse !important;
-                page-break-inside: auto;
-            }
-            tr { page-break-inside: avoid; page-break-after: auto; }
-            th {
-                background-color: #e5e7eb !important;
-                color: black !important;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-                font-weight: bold;
-            }
-            th, td {
-                border: 1px solid #000 !important;
-                padding: 6px !important;
-                font-size: 10pt !important;
-            }
-            
-            /* Flatten form inputs to look like normal text on print */
-            input, select, textarea {
-                border: none !important;
-                background: transparent !important;
-                color: black !important;
-                box-shadow: none !important;
-                outline: none !important;
-                padding: 0 !important;
-                margin: 0 !important;
-                -webkit-appearance: none !important;
-                appearance: none !important;
-                font-size: 10pt !important;
-                width: auto !important;
-            }
-            /* Hide the dropdown arrow in select */
-            select::-ms-expand { display: none; }
-            input::placeholder, textarea::placeholder { color: transparent !important; }
+        h2 { 
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-main);
+            margin: 0 0 8px 0; 
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin: 0;
+        }
+
+        .card {
+            background: var(--card-bg); 
+            padding: 24px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border-color);
+            margin-bottom: 24px;
+        }
+
+        .controls { 
+            display: flex; 
+            flex-wrap: wrap;
+            gap: 24px; 
+            align-items: center; 
+        }
+
+        input[type="file"] { 
+            font-size: 14px; 
+            color: var(--text-muted);
+        }
+
+        .slider-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        input[type="range"] {
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
+
+        #status { 
+            font-weight: 500; 
+            font-size: 0.95rem;
+            color: var(--primary);
+            margin-left: auto;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .btn-reset {
+            background: #f1f5f9;
+            border: 1px solid var(--border-color);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-main);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-reset:hover {
+            background: #e2e8f0;
+        }
+
+        /* Interactive Canvas Viewport */
+        .canvas-viewport { 
+            width: 100%;
+            height: 600px; 
+            background: #000000; 
+            border: 1px solid var(--border-color); 
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+            cursor: grab;
+        }
+
+        .canvas-viewport:active {
+            cursor: grabbing;
+        }
+
+        canvas { 
+            display: block; 
+            width: 100%;
+            height: 100%;
+        }
+
+        .canvas-hud {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            background: rgba(15, 23, 42, 0.75);
+            color: #f8fafc;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            pointer-events: none;
+            backdrop-filter: blur(4px);
+            letter-spacing: 0.3px;
+        }
+
+        #navMap { 
+            width: 100%; 
+            height: 600px; 
+            border-radius: 8px;
         }
     </style>
 </head>
-<body class="flex h-screen overflow-hidden text-gray-800">
+<body>
 
-    <!-- Sidebar -->
-    <aside id="sidebar" class="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-20">
-        <div class="p-6 bg-slate-950 border-b border-slate-800 flex items-center space-x-3">
-            <svg class="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3" /></svg>
-            <h1 class="text-xl font-bold tracking-wider">QC DASH.</h1>
+<div class="container">
+    <header>
+        <h2>Geophysical Sub-Bottom Fast Viewer</h2>
+        <p class="subtitle">Client-side high performance SEG-Y trace and trackline visualizer.</p>
+    </header>
+    
+    <div class="card">
+        <div class="controls">
+            <input type="file" id="sgyFile" accept=".sgy,.segy">
+            <div class="slider-group">
+                <label for="clipSlider">Amplitude Clip Percentile:</label>
+                <input type="range" id="clipSlider" min="90" max="99.9" step="0.1" value="98">
+                <span id="clipValue" style="min-width: 35px;">98</span>%
+            </div>
+            <span id="status">Waiting for file upload...</span>
         </div>
-        <nav class="flex-1 overflow-y-auto py-4 space-y-1">
-            <button onclick="switchTab('dashboard')" id="nav-dashboard" class="w-full flex items-center space-x-3 px-6 py-3 text-left hover:bg-slate-800 transition-colors bg-slate-800 border-r-4 border-blue-500 text-blue-400 font-medium">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
-                <span>Overview</span>
-            </button>
-            
-            <div class="px-6 pt-4 pb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Checklists</div>
-            <div id="sidebar-links">
-                <!-- Dynamically populated links -->
-            </div>
-        </nav>
-        <div class="p-6 bg-slate-950 text-xs text-slate-500">
-            Internal QC Tool v2.0<br>Secure &amp; Self-Contained
-        </div>
-    </aside>
-
-    <!-- Main Content -->
-    <div class="flex-1 flex flex-col h-screen relative bg-gray-50">
-        
-        <!-- Header -->
-        <header id="top-header" class="bg-white shadow-sm h-16 flex items-center justify-between px-6 z-10">
-            <h2 id="header-title" class="text-xl font-semibold text-gray-800">Overview Dashboard</h2>
-            
-            <div class="flex items-center space-x-4">
-                <!-- Bulk Fill (Hidden on Dashboard) -->
-                <div id="bulk-fill-tool" class="hidden flex items-center space-x-2 bg-slate-100 p-1.5 rounded-lg border border-slate-200">
-                    <span class="text-xs font-semibold text-slate-500 uppercase px-2">Bulk Actions:</span>
-                    <input type="text" id="bulk-name" placeholder="Initials / Name" class="text-sm px-3 py-1.5 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none w-36">
-                    <input type="date" id="bulk-date" class="text-sm px-3 py-1.5 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-                    <button onclick="applyBulkFill()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-1.5 rounded transition">Apply to Sheet</button>
-                </div>
-                
-                <button onclick="printPDF()" class="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition shadow-sm">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                    <span>Print PDF</span>
-                </button>
-            </div>
-        </header>
-
-        <!-- Dynamic Content Area -->
-        <main id="main-content" class="flex-1 overflow-y-auto p-6 lg:p-8">
-            
-            <!-- Dashboard View -->
-            <div id="dashboard-view" class="max-w-6xl mx-auto">
-                <div class="mb-8">
-                    <h3 class="text-2xl font-bold text-gray-900">QC Status Overview</h3>
-                    <p class="text-gray-500 mt-1">Track completion progress across all survey platforms and data sources.</p>
-                </div>
-                
-                <!-- Stats Grid -->
-                <div id="dashboard-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    <!-- Dynamically populated stat cards -->
-                </div>
-            </div>
-
-            <!-- Sheets Container -->
-            <div id="sheets-container" class="hidden-view max-w-full">
-                <!-- Dynamically populated sheets -->
-            </div>
-
-        </main>
     </div>
 
-    <script>
-        // Core Data Extracted from Excel
-        const qcData = {
-          "MBES Vessel": [
-            {"no": 1, "category": "A. Positioning", "check_item": "GNSS positioning system (RTK/PPK) is fixed and logging correctly.", "criteria": "Fix status = RTK Fixed / PPK converged, no dropouts."},
-            {"no": 2, "category": "A. Positioning", "check_item": "Horizontal and vertical datum match the project spec.", "criteria": "Datum/projection recorded in metadata."},
-            {"no": 3, "category": "A. Positioning", "check_item": "GNSS antenna to transducer offset is measured and entered in software.", "criteria": "Offset accuracy under 2 cm (survey grade)."},
-            {"no": 4, "category": "B. Motion", "check_item": "MRU is calibrated and mounted per manufacturer spec.", "criteria": "Calibration certificate on file."},
-            {"no": 5, "category": "B. Motion", "check_item": "Patch test is complete (latency, roll, pitch, yaw).", "criteria": "Residuals within IHO S-44 / manufacturer tolerance."},
-            {"no": 6, "category": "B. Motion", "check_item": "Heave, roll, and pitch look reasonable during the survey.", "criteria": "No spikes or dropouts in real-time motion data."},
-            {"no": 7, "category": "C. Sound velocity / tide", "check_item": "Sound velocity profile (SVP) is cast and applied.", "criteria": "SVP age under 24 hours, or more often if conditions vary."},
-            {"no": 8, "category": "C. Sound velocity / tide", "check_item": "Tide / water level correction source is configured and verified.", "criteria": "Matches the nearest tide station or an RTK tide."},
-            {"no": 9, "category": "C. Sound velocity / tide", "check_item": "Static draft and dynamic draft (squat/settlement) are accounted for.", "criteria": "Draft measured before/after the survey."},
-            {"no": 10, "category": "D. Acquisition", "check_item": "Ping rate / beam coverage is adequate for the planned resolution.", "criteria": "Meets survey spec (e.g., 100% coverage, required overlap)."},
-            {"no": 11, "category": "D. Acquisition", "check_item": "Real-time data shows no major gaps, noise, or refraction artifacts.", "criteria": "Reviewed on each line before moving to the next."},
-            {"no": 12, "category": "D. Acquisition", "check_item": "Backscatter / water column data is logged, if required.", "criteria": "Logging settings confirmed before the survey starts."},
-            {"no": 13, "category": "E. USV-specific", "check_item": "Comms link to the USV is stable, with a defined fallback procedure.", "criteria": "Link tested before deployment; loss-of-comms behavior defined."},
-            {"no": 14, "category": "E. USV-specific", "check_item": "Autonomous navigation mode is calibrated (waypoint tracking accuracy).", "criteria": "Cross-track error within spec."},
-            {"no": 15, "category": "E. USV-specific", "check_item": "Remote pilot/operator is monitoring the survey in real time.", "criteria": "Confirmed by the operator log."},
-            {"no": 16, "category": "F. Records", "check_item": "Survey log completed (date, vessel, operator, settings, weather).", "criteria": "Per the project QA/QC procedure."},
-            {"no": 17, "category": "F. Records", "check_item": "QC report reviewed and approved.", "criteria": "Signed off by the survey lead."}
-          ],
-          "MBES AUV": [
-            {"no": 1, "category": "A. Navigation", "check_item": "INS alignment is completed before the dive.", "criteria": "Alignment residual within spec."},
-            {"no": 2, "category": "A. Navigation", "check_item": "DVL bottom-lock quality is checked for the planned altitude range.", "criteria": "DVL lock confirmed across the planned altitude range."},
-            {"no": 3, "category": "A. Navigation", "check_item": "Navigation fix schedule is defined (USBL/LBL/GPS surface fixes).", "criteria": "Fix interval per mission plan; drift budget calculated."},
-            {"no": 4, "category": "A. Navigation", "check_item": "Dead-reckoning drift budget between fixes is reviewed.", "criteria": "Estimated drift within the position uncertainty needed for the survey."},
-            {"no": 5, "category": "B. Sound velocity", "check_item": "Sound velocity profile matches the AUV's operating depth range.", "criteria": "SVP covers the dive depth; updated if the AUV crosses water masses."},
-            {"no": 6, "category": "C. Calibration", "check_item": "MBES-to-INS lever arm and boresight angles are calibrated.", "criteria": "Patch test / boresight run residuals within tolerance."},
-            {"no": 7, "category": "C. Calibration", "check_item": "Payload timing sync with the INS is verified.", "criteria": "Latency within spec."},
-            {"no": 8, "category": "D. Mission", "check_item": "Dive altitude/depth is set correctly for the desired MBES swath.", "criteria": "Matches target swath width and resolution."},
-            {"no": 9, "category": "D. Mission", "check_item": "Battery/power margin is sufficient for the mission plus reserve.", "criteria": "Margin meets the AUV operating procedure."},
-            {"no": 10, "category": "D. Mission", "check_item": "Obstacle avoidance and altitude control are functioning correctly.", "criteria": "Confirmed in pre-dive checks and the mission log."},
-            {"no": 11, "category": "E. Acquisition", "check_item": "Data is reviewed for coverage gaps or artifacts.", "criteria": "Post-dive QC pass on the raw data."},
-            {"no": 12, "category": "E. Acquisition", "check_item": "Backscatter data is logged, if required.", "criteria": "Logging settings confirmed before the dive."},
-            {"no": 13, "category": "F. Post-processing", "check_item": "Navigation data is post-processed (smoothing / fix integration).", "criteria": "Final navigation solution reviewed; drift corrected."},
-            {"no": 14, "category": "F. Post-processing", "check_item": "Sound velocity corrections are re-applied if an updated SVP is available.", "criteria": "Applied consistently across the dataset."},
-            {"no": 15, "category": "G. Records", "check_item": "Mission log completed (date, AUV ID, mission number, settings).", "criteria": "Per the project QA/QC procedure."},
-            {"no": 16, "category": "G. Records", "check_item": "QC report reviewed and approved.", "criteria": "Signed off by the survey lead."}
-          ],
-          "SBP Vessel": [
-            {"no": 1, "category": "A. Positioning", "check_item": "GNSS positioning system is fixed and logging correctly.", "criteria": "Fix status = RTK Fixed / PPK converged, no dropouts."},
-            {"no": 2, "category": "A. Positioning", "check_item": "Datum and projection match the project spec.", "criteria": "Recorded in metadata."},
-            {"no": 3, "category": "A. Positioning", "check_item": "Transducer/hydrophone offset from the GNSS antenna is measured.", "criteria": "Offset accuracy per the installation drawing."},
-            {"no": 4, "category": "B. Configuration", "check_item": "Mounting configuration is documented (hull-mounted vs towed).", "criteria": "Installation type and offsets recorded."},
-            {"no": 5, "category": "B. Configuration", "check_item": "If towed: cable out, depth, and layback are calculated.", "criteria": "Layback method documented (calculated or acoustically tracked)."},
-            {"no": 6, "category": "C. Signal", "check_item": "Source signal type, frequency, and power suit the target penetration depth.", "criteria": "Matches the expected sub-bottom target depth and sediment type."},
-            {"no": 7, "category": "C. Signal", "check_item": "A penetration test / calibration line is run before the survey.", "criteria": "Confirms adequate penetration and resolution at the site."},
-            {"no": 8, "category": "D. Velocity", "check_item": "Sediment velocity value is documented with a source.", "criteria": "Value and reference (core sample or literature) recorded in metadata."},
-            {"no": 9, "category": "E. Acquisition", "check_item": "Line spacing is adequate for target detection and line-to-line correlation.", "criteria": "Meets survey spec."},
-            {"no": 10, "category": "E. Acquisition", "check_item": "Record quality is checked for noise, ringing, or multiples.", "criteria": "Reviewed on each line before moving to the next."},
-            {"no": 11, "category": "F. USV-specific", "check_item": "Comms link to the USV is stable, with a defined fallback procedure.", "criteria": "Tested before deployment."},
-            {"no": 12, "category": "F. USV-specific", "check_item": "Autonomous navigation tracking accuracy is confirmed.", "criteria": "Cross-track error within spec."},
-            {"no": 13, "category": "G. Records", "check_item": "Survey log completed.", "criteria": "Per the project QA/QC procedure."},
-            {"no": 14, "category": "G. Records", "check_item": "QC report reviewed and approved.", "criteria": "Signed off by the survey lead."}
-          ],
-          "SBP AUV": [
-            {"no": 1, "category": "A. Navigation", "check_item": "INS alignment is completed before the dive.", "criteria": "Alignment residual within spec."},
-            {"no": 2, "category": "A. Navigation", "check_item": "Navigation fix schedule and drift budget are reviewed.", "criteria": "Same requirement as MBES-AUV; drift budget within the target uncertainty."},
-            {"no": 3, "category": "B. Offset", "check_item": "SBP-to-INS lever arm offset is calibrated.", "criteria": "Matches the installation drawing."},
-            {"no": 4, "category": "B. Offset", "check_item": "Altitude/standoff distance is controlled for good acoustic coupling.", "criteria": "Within the manufacturer-recommended range for SBP performance."},
-            {"no": 5, "category": "C. Signal", "check_item": "Source signal settings suit the target penetration depth.", "criteria": "Matches the expected sub-bottom target and sediment type."},
-            {"no": 6, "category": "C. Signal", "check_item": "Penetration performance is verified in-situ.", "criteria": "Confirmed on a test line or early in the survey."},
-            {"no": 7, "category": "D. Velocity", "check_item": "Sediment velocity value is documented with a source.", "criteria": "Recorded in metadata."},
-            {"no": 8, "category": "E. Mission", "check_item": "Battery/power margin is sufficient for the mission duration.", "criteria": "Per the AUV operating procedure."},
-            {"no": 9, "category": "F. Acquisition", "check_item": "Data is reviewed for coverage gaps, noise, or loss of penetration.", "criteria": "Post-dive QC pass."},
-            {"no": 10, "category": "G. Post-processing", "check_item": "Navigation data is post-processed and drift corrected.", "criteria": "Same requirement as MBES-AUV."},
-            {"no": 11, "category": "G. Post-processing", "check_item": "Sediment velocity / depth conversion matches the Error_Budget assumptions.", "criteria": "Cross-checked against the Error_Budget."},
-            {"no": 12, "category": "H. Records", "check_item": "Mission log completed.", "criteria": "Per the project QA/QC procedure."},
-            {"no": 13, "category": "H. Records", "check_item": "QC report reviewed and approved.", "criteria": "Signed off by the survey lead."}
-          ],
-          "SSS Towed": [
-            {"no": 1, "category": "A. Positioning", "check_item": "Vessel GNSS positioning is fixed and logging correctly.", "criteria": "RTK/PPK fix maintained throughout the line."},
-            {"no": 2, "category": "A. Positioning", "check_item": "Towfish position is tracked (USBL/beacon) or calculated by layback.", "criteria": "USBL/acoustic tracking preferred over calculated layback."},
-            {"no": 3, "category": "A. Positioning", "check_item": "If using calculated layback: cable-out, depth, and tow-point offset are correct.", "criteria": "Cable counter calibrated; tow point offset verified."},
-            {"no": 4, "category": "B. Tow configuration", "check_item": "Cable-out vs water depth is monitored to keep the fish at the right depth.", "criteria": "Fish depth matches the survey plan."},
-            {"no": 5, "category": "B. Tow configuration", "check_item": "Fish altitude above the seabed is controlled within the target range.", "criteria": "Typically 10-20% of the selected range scale."},
-            {"no": 6, "category": "B. Tow configuration", "check_item": "Layback / cable catenary effects are included in the position accuracy budget.", "criteria": "Documented in Error_Budget or the navigation report."},
-            {"no": 7, "category": "C. Sonar settings", "check_item": "Range scale and vessel speed avoid gaps and excess overlap.", "criteria": "Speed-to-range ratio within the recommended limit."},
-            {"no": 8, "category": "C. Sonar settings", "check_item": "Line spacing gives the required overlap between adjacent swaths.", "criteria": "Meets survey spec (e.g., 100-120% coverage)."},
-            {"no": 9, "category": "C. Sonar settings", "check_item": "Time-varying gain (TVG) and other gain settings suit the bottom type.", "criteria": "Checked on a test line; no saturation or excessive noise."},
-            {"no": 10, "category": "D. Data quality", "check_item": "Nadir gap is within acceptable limits for target detection.", "criteria": "Matches the project requirement."},
-            {"no": 11, "category": "D. Data quality", "check_item": "Along-track and across-track resolution meets the detection requirement.", "criteria": "Confirmed against a known feature or test target."},
-            {"no": 12, "category": "D. Data quality", "check_item": "Mosaic/waterfall display is checked for seams, dropouts, or speed artifacts.", "criteria": "Reviewed after each line and again at the end of the survey."},
-            {"no": 13, "category": "E. Cross-check", "check_item": "Features are correlated across overlapping/adjacent lines.", "criteria": "Visual cross-line QC performed."},
-            {"no": 14, "category": "E. Cross-check", "check_item": "Contacts/anomalies are logged with position, line number, and range.", "criteria": "Per the project contact log procedure."},
-            {"no": 15, "category": "F. Records", "check_item": "Survey log completed (date, vessel, tow configuration, settings).", "criteria": "Per the project QA/QC procedure."},
-            {"no": 16, "category": "F. Records", "check_item": "QC report reviewed and approved.", "criteria": "Signed off by the survey lead."}
-          ],
-          "Cross Comparison": [
-            {"no": 1, "category": "A. Datum", "check_item": "All datasets use the same horizontal datum (e.g., same UTM zone).", "criteria": "Check MBES, AUV, and SBP metadata for a matching datum/projection."},
-            {"no": 2, "category": "A. Datum", "check_item": "All datasets use the same vertical datum (chart datum, MSL, or ellipsoid).", "criteria": "Convert all data to one vertical datum before comparison."},
-            {"no": 3, "category": "A. Datum", "check_item": "Time reference (UTC) is synced across all systems.", "criteria": "Time offset within equipment spec (typically &lt; 1 ms for MBES)."},
-            {"no": 4, "category": "B. Calibration", "check_item": "MBES patch test is complete (latency, roll, pitch, yaw).", "criteria": "Done per IHO S-44 / manufacturer guidance, with a report on file."},
-            {"no": 5, "category": "B. Calibration", "check_item": "GNSS antenna to transducer/DVL offset is checked.", "criteria": "Offset error under 2 cm (survey grade)."},
-            {"no": 6, "category": "B. Calibration", "check_item": "AUV INS/DVL calibration and drift check done.", "criteria": "Drift rate within spec (typically 0.1-0.5% of distance traveled)."},
-            {"no": 7, "category": "B. Calibration", "check_item": "SBP transducer offset from reference point is checked.", "criteria": "Matches the installation offset drawing."},
-            {"no": 8, "category": "C. Corrections", "check_item": "Sound velocity profile (SVP) is current and covers the survey area.", "criteria": "SVP age under 24 hours, or more frequent if water conditions vary."},
-            {"no": 9, "category": "C. Corrections", "check_item": "Tide / water level correction applied.", "criteria": "Uses the nearest tide station, or RTK tide, as appropriate."},
-            {"no": 10, "category": "C. Corrections", "check_item": "SBP sediment velocity value is documented with a source.", "criteria": "State the velocity (m/s) and cite a core sample or reference."},
-            {"no": 11, "category": "D. Navigation", "check_item": "AUV navigation fixes (USBL/LBL/GPS) occur at proper intervals.", "criteria": "Fix spacing follows the mission plan."},
-            {"no": 12, "category": "D. Navigation", "check_item": "AUV drift at the time of detection is within limits.", "criteria": "Accumulated drift under the project threshold (e.g., 0.5% of distance)."},
-            {"no": 13, "category": "D. Navigation", "check_item": "Position uncertainty (THU/TVU) is calculated for each sensor.", "criteria": "Meets the survey Order per IHO S-44 (Special / 1a / 1b / 2)."},
-            {"no": 14, "category": "E. Comparison", "check_item": "Horizontal distance (Delta XY) is within combined uncertainty.", "criteria": "Delta XY &lt;= RSS(THU_A, THU_B) at 95% confidence."},
-            {"no": 15, "category": "E. Comparison", "check_item": "Vertical distance (Delta Z) is within combined uncertainty.", "criteria": "Delta Z &lt;= RSS(TVU_A, TVU_B) at 95% confidence."},
-            {"no": 16, "category": "E. Comparison", "check_item": "Object shape/appearance is consistent across datasets.", "criteria": "Confirmed visually by the interpreter."},
-            {"no": 17, "category": "E. Comparison", "check_item": "Statistical test (Mahalanobis / chi-square) passed, if used.", "criteria": "Mahalanobis^2 &lt; chi-square critical value (df=2, 95% = 5.99)."},
-            {"no": 18, "category": "F. Records", "check_item": "Metadata recorded (date, equipment, operator, software version).", "criteria": "Per the project QA/QC procedure."},
-            {"no": 19, "category": "F. Records", "check_item": "QC report reviewed and approved.", "criteria": "Signed off by the survey party chief or authorized reviewer."}
-          ]
+    <div class="card">
+        <div class="section-header">
+            <div class="section-title">Sub-Bottom Profile (Blue-White-Red Seismic Palette)</div>
+            <button class="btn-reset" id="resetViewBtn">Reset View & Zoom</button>
+        </div>
+        <div class="canvas-viewport" id="viewport">
+            <canvas id="seismicCanvas"></canvas>
+            <div class="canvas-hud">Controls: Scroll to zoom • Click & drag to pan</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="section-title" style="margin-bottom: 12px;">Survey Trackline (Navigation)</div>
+        <div id="navMap"></div>
+    </div>
+</div>
+
+<script>
+    let globalTraces = [];
+    let globalNavX = [];
+    let globalNavY = [];
+    
+    // Offscreen rendering cache for fast pan/zoom performance
+    let offscreenCanvas = document.createElement('canvas');
+    let offscreenCtx = offscreenCanvas.getContext('2d');
+
+    // Pan & Zoom View State
+    let scale = 1;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+
+    const sgyInput = document.getElementById('sgyFile');
+    const clipSlider = document.getElementById('clipSlider');
+    const clipValue = document.getElementById('clipValue');
+    const statusTxt = document.getElementById('status');
+    const viewport = document.getElementById('viewport');
+    const canvas = document.getElementById('seismicCanvas');
+    const ctx = canvas.getContext('2d');
+    const resetViewBtn = document.getElementById('resetViewBtn');
+
+    // Resize canvas internal buffer to match container layout bounds
+    function initCanvasSize() {
+        const rect = viewport.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+        drawScene();
+    }
+    window.addEventListener('resize', initCanvasSize);
+
+    clipSlider.addEventListener('input', (e) => {
+        clipValue.textContent = e.target.value;
+    });
+
+    clipSlider.addEventListener('change', () => {
+        if(globalTraces.length > 0) {
+            buildSeismicCache();
+            drawScene();
+        }
+    });
+
+    resetViewBtn.addEventListener('click', () => {
+        resetView();
+    });
+
+    // Mouse Controls for Pan & Zoom
+    viewport.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX - panX;
+        startY = e.clientY - panY;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        panX = e.clientX - startX;
+        panY = e.clientY - startY;
+        drawScene();
+    });
+
+    window.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+
+    viewport.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomIntensity = 0.12;
+        const wheel = e.deltaY < 0 ? 1 : -1;
+        const zoomFactor = Math.exp(wheel * zoomIntensity);
+
+        const rect = viewport.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        // Zoom centered on mouse position
+        panX = mouseX - (mouseX - panX) * zoomFactor;
+        panY = mouseY - (mouseY - panY) * zoomFactor;
+        scale *= zoomFactor;
+
+        // Constrain zoom limits
+        scale = Math.max(0.2, Math.min(scale, 50));
+
+        drawScene();
+    }, { passive: false });
+
+    function resetView() {
+        scale = 1;
+        panX = 0;
+        panY = 0;
+        drawScene();
+    }
+
+    sgyInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        statusTxt.textContent = "Reading file into memory...";
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            statusTxt.textContent = "Parsing SEG-Y binary structures...";
+            const arrayBuffer = event.target.result;
+            parseSegy(arrayBuffer);
         };
+        reader.readAsArrayBuffer(file);
+    });
 
-        // State object to track completion
-        let appState = {};
-        let activeTabID = 'dashboard';
-
-        document.addEventListener('DOMContentLoaded', () => {
-            const sidebarLinks = document.getElementById('sidebar-links');
-            const sheetsContainer = document.getElementById('sheets-container');
-            const dashboardGrid = document.getElementById('dashboard-grid');
-
-            Object.keys(qcData).forEach((sheetName) => {
-                const safeId = sheetName.replace(/\s+/g, '-');
-                
-                // 1. Initialize State for tracking progress
-                appState[sheetName] = { total: qcData[sheetName].length, completed: 0 };
-
-                // 2. Generate Sidebar Links
-                const linkBtn = document.createElement('button');
-                linkBtn.id = `nav-${safeId}`;
-                linkBtn.className = "w-full flex items-center space-x-3 px-6 py-2.5 text-left text-slate-300 hover:bg-slate-800 hover:text-white transition-colors nav-btn text-sm";
-                linkBtn.innerHTML = `
-                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    <span>${sheetName}</span>
-                `;
-                linkBtn.onclick = () => switchTab(sheetName);
-                sidebarLinks.appendChild(linkBtn);
-
-                // 3. Generate Dashboard Cards
-                const card = document.createElement('div');
-                card.id = `card-${safeId}`;
-                card.className = "bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col cursor-pointer hover:shadow-md transition-shadow";
-                card.onclick = () => switchTab(sheetName);
-                card.innerHTML = `
-                    <div class="flex justify-between items-start mb-4">
-                        <div class="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3" /></svg>
-                        </div>
-                        <span class="text-xs font-semibold px-2 py-1 bg-gray-100 text-gray-500 rounded-full status-badge">0%</span>
-                    </div>
-                    <h4 class="text-lg font-semibold text-gray-800">${sheetName}</h4>
-                    <p class="text-sm text-gray-500 mt-1 mb-4 flex-1">Complete the mandatory quality checks for this platform.</p>
-                    <div>
-                        <div class="flex justify-between text-xs text-gray-500 mb-1">
-                            <span>Progress</span>
-                            <span class="progress-text">0 / ${appState[sheetName].total}</span>
-                        </div>
-                        <div class="w-full bg-gray-100 rounded-full h-2">
-                            <div class="bg-blue-600 h-2 rounded-full transition-all duration-500 progress-bar" style="width: 0%"></div>
-                        </div>
-                    </div>
-                `;
-                dashboardGrid.appendChild(card);
-
-                // 4. Generate Data Tables (Sheets)
-                const sheetDiv = document.createElement('div');
-                sheetDiv.id = `sheet-${safeId}`;
-                sheetDiv.className = "sheet-view hidden-view bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden";
-                sheetDiv.dataset.sheetName = sheetName;
-                
-                let tableHTML = `
-                    <div class="px-6 py-5 border-b border-gray-200 bg-white print-only" style="display:none;">
-                        <h3 class="text-xl font-bold text-gray-900">QC Checklist: ${sheetName}</h3>
-                        <p class="text-sm text-gray-500">Official Quality Control Document</p>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="bg-gray-50 text-gray-600 text-sm leading-normal border-b border-gray-200">
-                                    <th class="py-3 px-4 font-semibold w-12 text-center border-r border-gray-200">#</th>
-                                    <th class="py-3 px-4 font-semibold w-1/6 border-r border-gray-200">Category</th>
-                                    <th class="py-3 px-4 font-semibold w-1/4 border-r border-gray-200">Check Item</th>
-                                    <th class="py-3 px-4 font-semibold w-1/4 border-r border-gray-200">Criteria</th>
-                                    <th class="py-3 px-4 font-semibold w-32 border-r border-gray-200 text-center">Result</th>
-                                    <th class="py-3 px-4 font-semibold border-r border-gray-200">Notes</th>
-                                    <th class="py-3 px-4 font-semibold w-24 border-r border-gray-200">Sign</th>
-                                    <th class="py-3 px-4 font-semibold w-32">Date</th>
-                                </tr>
-                            </thead>
-                            <tbody class="text-gray-700 text-sm">
-                `;
-
-                qcData[sheetName].forEach(item => {
-                    tableHTML += `
-                        <tr class="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                            <td class="py-3 px-4 text-center font-medium border-r border-gray-200">${item.no}</td>
-                            <td class="py-3 px-4 border-r border-gray-200 text-gray-600">${item.category}</td>
-                            <td class="py-3 px-4 border-r border-gray-200 font-medium">${item.check_item}</td>
-                            <td class="py-3 px-4 border-r border-gray-200 text-gray-500 text-xs">${item.criteria}</td>
-                            <td class="py-3 px-4 border-r border-gray-200 text-center">
-                                <select class="w-full bg-white border border-gray-300 text-gray-700 py-1.5 px-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" onchange="updateRowColor(this, '${sheetName}')">
-                                    <option value="" disabled selected>-</option>
-                                    <option value="Pass">Pass</option>
-                                    <option value="Fail">Fail</option>
-                                    <option value="N/A">N/A</option>
-                                </select>
-                            </td>
-                            <td class="py-3 px-4 border-r border-gray-200">
-                                <textarea rows="1" class="w-full bg-transparent border-0 border-b border-transparent focus:border-blue-500 focus:ring-0 resize-none text-sm p-1" placeholder="Add notes..."></textarea>
-                            </td>
-                            <td class="py-3 px-4 border-r border-gray-200">
-                                <input type="text" class="checked-by w-full bg-transparent border-0 border-b border-transparent focus:border-blue-500 focus:ring-0 text-sm p-1 uppercase text-center" placeholder="Initials">
-                            </td>
-                            <td class="py-3 px-4">
-                                <input type="date" class="date-field w-full bg-transparent border-0 border-b border-transparent focus:border-blue-500 focus:ring-0 text-sm p-1 text-gray-600">
-                            </td>
-                        </tr>
-                    `;
-                });
-
-                tableHTML += `</tbody></table></div>`;
-                sheetDiv.innerHTML = tableHTML;
-                sheetsContainer.appendChild(sheetDiv);
-            });
+    function parseSegy(buffer) {
+        try {
+            const dataView = new DataView(buffer);
+            const formatCode = dataView.getInt16(3224, false); 
             
-            // Set initial state
-            updateDashboardStats();
-        });
-
-        function switchTab(tabId) {
-            activeTabID = tabId;
-            const safeId = tabId.replace(/\s+/g, '-');
-            
-            // Reset Sidebar Styles
-            document.querySelectorAll('.nav-btn').forEach(btn => {
-                btn.classList.remove('bg-slate-800', 'border-r-4', 'border-blue-500', 'text-blue-400', 'font-medium');
-                btn.classList.add('text-slate-300');
-            });
-            
-            // Set Active Sidebar Style
-            const activeBtn = document.getElementById(`nav-${safeId}`) || document.getElementById('nav-dashboard');
-            activeBtn.classList.add('bg-slate-800', 'border-r-4', 'border-blue-500', 'text-blue-400', 'font-medium');
-            activeBtn.classList.remove('text-slate-300');
-
-            // Toggle Views
-            const dashboardView = document.getElementById('dashboard-view');
-            const sheetsContainer = document.getElementById('sheets-container');
-            const bulkTool = document.getElementById('bulk-fill-tool');
-            const title = document.getElementById('header-title');
-
-            document.querySelectorAll('.sheet-view').forEach(sheet => {
-                sheet.classList.add('hidden-view');
-                sheet.classList.remove('active-sheet'); // used for print targeting
-            });
-
-            if (tabId === 'dashboard') {
-                dashboardView.classList.remove('hidden-view');
-                sheetsContainer.classList.add('hidden-view');
-                bulkTool.classList.add('hidden');
-                title.textContent = 'Overview Dashboard';
-            } else {
-                dashboardView.classList.add('hidden-view');
-                sheetsContainer.classList.remove('hidden-view');
-                bulkTool.classList.remove('hidden');
-                title.textContent = `${tabId} Checklist`;
-                
-                const targetSheet = document.getElementById(`sheet-${safeId}`);
-                targetSheet.classList.remove('hidden-view');
-                targetSheet.classList.add('active-sheet');
-            }
-        }
-
-        function updateRowColor(selectObj, sheetName) {
-            // Apply color coding based on selection
-            selectObj.classList.remove('status-pass', 'status-fail', 'status-na');
-            if (selectObj.value === 'Pass') selectObj.classList.add('status-pass');
-            if (selectObj.value === 'Fail') selectObj.classList.add('status-fail');
-            if (selectObj.value === 'N/A') selectObj.classList.add('status-na');
-
-            // Recalculate completion for this sheet
-            const safeId = sheetName.replace(/\s+/g, '-');
-            const sheetDiv = document.getElementById(`sheet-${safeId}`);
-            const allSelects = sheetDiv.querySelectorAll('select');
-            
-            let completed = 0;
-            allSelects.forEach(s => {
-                if (s.value !== "") completed++;
-            });
-
-            appState[sheetName].completed = completed;
-            updateDashboardStats();
-        }
-
-        function updateDashboardStats() {
-            Object.keys(appState).forEach(sheetName => {
-                const safeId = sheetName.replace(/\s+/g, '-');
-                const data = appState[sheetName];
-                const card = document.getElementById(`card-${safeId}`);
-                
-                if (card) {
-                    const percentage = Math.round((data.completed / data.total) * 100);
-                    
-                    const bar = card.querySelector('.progress-bar');
-                    bar.style.width = `${percentage}%`;
-                    
-                    if(percentage === 100) {
-                        bar.classList.replace('bg-blue-600', 'bg-emerald-500');
-                    } else {
-                        bar.classList.replace('bg-emerald-500', 'bg-blue-600');
-                    }
-
-                    card.querySelector('.progress-text').textContent = `${data.completed} / ${data.total}`;
-                    
-                    const badge = card.querySelector('.status-badge');
-                    badge.textContent = `${percentage}%`;
-                    if(percentage === 100) {
-                        badge.classList.replace('bg-gray-100', 'bg-emerald-100');
-                        badge.classList.replace('text-gray-500', 'text-emerald-700');
-                    }
-                }
-            });
-        }
-
-        function applyBulkFill() {
-            if (activeTabID === 'dashboard') return;
-
-            const nameVal = document.getElementById('bulk-name').value.trim();
-            const dateVal = document.getElementById('bulk-date').value;
-            
-            const safeId = activeTabID.replace(/\s+/g, '-');
-            const activeSheet = document.getElementById(`sheet-${safeId}`);
-
-            if (nameVal) {
-                activeSheet.querySelectorAll('input.checked-by').forEach(input => input.value = nameVal);
-            }
-            if (dateVal) {
-                activeSheet.querySelectorAll('input.date-field').forEach(input => input.value = dateVal);
-            }
-            
-            // Visual feedback
-            const btn = document.querySelector('#bulk-fill-tool button');
-            const originalText = btn.textContent;
-            btn.textContent = "Applied!";
-            btn.classList.replace('bg-blue-600', 'bg-emerald-500');
-            setTimeout(() => {
-                btn.textContent = originalText;
-                btn.classList.replace('bg-emerald-500', 'bg-blue-600');
-            }, 1500);
-        }
-
-        function printPDF() {
-            if(activeTabID === 'dashboard') {
-                alert("Please select a specific checklist from the sidebar to print.");
+            if (formatCode !== 5 && formatCode !== 1) {
+                alert("Unsupported format code: " + formatCode + ". Please ensure export uses IEEE Float (Format 5).");
+                statusTxt.textContent = "Error: Unsupported format.";
                 return;
             }
-            window.print();
+
+            let offset = 3600; 
+            globalTraces = [];
+            globalNavX = [];
+            globalNavY = [];
+            
+            statusTxt.textContent = "Extracting traces and navigation coordinates...";
+
+            while (offset < buffer.byteLength) {
+                let scalar = dataView.getInt16(offset + 70, false);
+                let sx = dataView.getInt32(offset + 72, false);
+                let sy = dataView.getInt32(offset + 76, false);
+                let numSamples = dataView.getInt16(offset + 114, false);
+                
+                let mult = 1.0;
+                if (scalar < 0) mult = 1.0 / Math.abs(scalar);
+                else if (scalar > 0) mult = scalar;
+                
+                let actualX = sx * mult;
+                let actualY = sy * mult;
+                
+                if (actualX !== 0 || actualY !== 0) {
+                    globalNavX.push(actualX);
+                    globalNavY.push(actualY);
+                }
+
+                let traceData = new Float32Array(numSamples);
+                let traceOffset = offset + 240; 
+                
+                for (let i = 0; i < numSamples; i++) {
+                    traceData[i] = dataView.getFloat32(traceOffset + (i * 4), false);
+                }
+                
+                globalTraces.push(traceData);
+                offset += 240 + (numSamples * 4);
+            }
+
+            initCanvasSize();
+            buildSeismicCache();
+            resetView();
+            renderNavigation();
+            statusTxt.textContent = `Success: Rendered ${globalTraces.length} traces.`;
+
+        } catch (error) {
+            console.error(error);
+            statusTxt.textContent = "Error parsing file. Check console.";
         }
-    </script>
+    }
+
+    function buildSeismicCache() {
+        if (globalTraces.length === 0) return;
+        
+        const width = globalTraces.length;
+        const height = globalTraces[0].length; 
+        
+        offscreenCanvas.width = width;
+        offscreenCanvas.height = height;
+
+        let sampleValues = [];
+        for (let i = 0; i < width; i += 10) { 
+            for (let j = 0; j < height; j += 10) {
+                sampleValues.push(Math.abs(globalTraces[i][j]));
+            }
+        }
+        sampleValues.sort((a, b) => a - b);
+        let pctIndex = Math.floor(sampleValues.length * (parseFloat(clipSlider.value) / 100));
+        let clipVal = sampleValues[pctIndex];
+
+        const imgData = offscreenCtx.createImageData(width, height);
+        let dataIndex = 0;
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                let val = globalTraces[x][y];
+                
+                if (val > clipVal) val = clipVal;
+                if (val < -clipVal) val = -clipVal;
+                
+                let normalized = (val + clipVal) / (2 * clipVal);
+                let r = 0, g = 0, b = 0;
+                
+                if (normalized < 0.5) {
+                    let t = normalized * 2; 
+                    r = Math.round(16 + t * (255 - 16));  
+                    g = Math.round(78 + t * (255 - 78));  
+                    b = Math.round(139 + t * (255 - 139));
+                } else {
+                    let t = (normalized - 0.5) * 2; 
+                    r = Math.round(255 - t * (255 - 139)); 
+                    g = Math.round(255 - t * 255);         
+                    b = Math.round(255 - t * 255);         
+                }
+
+                imgData.data[dataIndex++] = r; 
+                imgData.data[dataIndex++] = g; 
+                imgData.data[dataIndex++] = b; 
+                imgData.data[dataIndex++] = 255; 
+            }
+        }
+        offscreenCtx.putImageData(imgData, 0, 0);
+    }
+
+    function drawScene() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (globalTraces.length === 0) return;
+
+        ctx.save();
+        ctx.translate(panX, panY);
+        ctx.scale(scale, scale);
+        
+        // Draw cached offscreen seismic image onto interactive viewport canvas
+        ctx.drawImage(offscreenCanvas, 0, 0);
+        ctx.restore();
+    }
+
+    function renderNavigation() {
+        if (globalNavX.length === 0) return;
+
+        const traceLine = {
+            x: globalNavX,
+            y: globalNavY,
+            mode: 'lines',
+            name: 'Vessel Track',
+            line: {color: '#2563eb', width: 2}
+        };
+
+        const startPoint = {
+            x: [globalNavX[0]],
+            y: [globalNavY[0]],
+            mode: 'markers',
+            name: 'Start of Line',
+            marker: {color: '#16a34a', size: 10, symbol: 'circle'}
+        };
+
+        const endPoint = {
+            x: [globalNavX[globalNavX.length - 1]],
+            y: [globalNavY[globalNavY.length - 1]],
+            mode: 'markers',
+            name: 'End of Line',
+            marker: {color: '#dc2626', size: 10, symbol: 'square'}
+        };
+
+        const layout = {
+            margin: { t: 30, r: 30, b: 40, l: 60 },
+            xaxis: { title: 'Easting / Longitude', scaleanchor: "y", scaleratio: 1, gridcolor: '#f1f5f9' },
+            yaxis: { title: 'Northing / Latitude', gridcolor: '#f1f5f9' },
+            showlegend: true,
+            paper_bgcolor: 'transparent',
+            plot_bgcolor: 'transparent'
+        };
+
+        Plotly.newPlot('navMap', [traceLine, startPoint, endPoint], layout, {responsive: true});
+    }
+</script>
+
 </body>
 </html>
