@@ -7,22 +7,16 @@
     <!-- Load Plotly for the Navigation Map -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
-        :root {
-            --primary: #2563eb;
-            --primary-hover: #1d4ed8;
-            --bg-color: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #1e293b;
-            --text-muted: #64748b;
-            --border-color: #e2e8f0;
+        * {
+            box-sizing: border-box;
         }
 
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-            background-color: var(--bg-color); 
-            color: var(--text-main);
+            background-color: #0f1419;
+            color: #e4e6eb;
             margin: 0; 
-            padding: 30px; 
+            padding: 20px; 
         }
 
         .container { 
@@ -31,60 +25,62 @@
         }
 
         header {
-            margin-bottom: 24px;
+            margin-bottom: 20px;
         }
 
         h2 { 
-            font-size: 1.5rem;
+            font-size: 1.3rem;
             font-weight: 600;
-            color: var(--text-main);
-            margin: 0 0 8px 0; 
+            color: #e4e6eb;
+            margin: 0 0 6px 0; 
         }
 
         .subtitle {
-            color: var(--text-muted);
-            font-size: 0.95rem;
+            color: #a0aec0;
+            font-size: 0.9rem;
             margin: 0;
         }
 
         .card {
-            background: var(--card-bg); 
-            padding: 24px; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-            border: 1px solid var(--border-color);
-            margin-bottom: 24px;
+            background: #1a1f2e;
+            padding: 16px; 
+            border-radius: 8px; 
+            border: 1px solid #2d3748;
+            margin-bottom: 16px;
         }
 
         .controls { 
             display: flex; 
             flex-wrap: wrap;
-            gap: 24px; 
+            gap: 16px; 
             align-items: center; 
         }
 
         input[type="file"] { 
-            font-size: 14px; 
-            color: var(--text-muted);
+            font-size: 13px; 
+            color: #a0aec0;
+            cursor: pointer;
         }
 
         .slider-group {
             display: flex;
             align-items: center;
-            gap: 12px;
-            font-size: 0.95rem;
+            gap: 8px;
+            font-size: 0.9rem;
             font-weight: 500;
+            color: #e4e6eb;
         }
 
         input[type="range"] {
-            accent-color: var(--primary);
+            accent-color: #3b82f6;
             cursor: pointer;
+            height: 5px;
         }
 
         #status { 
             font-weight: 500; 
-            font-size: 0.95rem;
-            color: var(--primary);
+            font-size: 0.9rem;
+            color: #60a5fa;
             margin-left: auto;
         }
 
@@ -96,34 +92,55 @@
         }
 
         .section-title {
-            font-size: 1.1rem;
+            font-size: 1rem;
             font-weight: 600;
-            color: var(--text-main);
+            color: #e4e6eb;
         }
 
         .btn-reset {
-            background: #f1f5f9;
-            border: 1px solid var(--border-color);
+            background: #2d3748;
+            border: 1px solid #4a5568;
             padding: 6px 12px;
             border-radius: 6px;
             font-size: 0.85rem;
             font-weight: 500;
-            color: var(--text-main);
+            color: #cbd5e0;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s;
         }
 
         .btn-reset:hover {
-            background: #e2e8f0;
+            background: #4a5568;
+            color: #e4e6eb;
         }
 
-        /* Interactive Canvas Viewport */
+        /* Canvas Viewport */
+        .canvas-container {
+            position: relative;
+            display: flex;
+            gap: 0;
+        }
+
+        .depth-scale {
+            width: 50px;
+            background: #0f1419;
+            border: 1px solid #2d3748;
+            border-radius: 0 0 0 8px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px 0;
+            font-size: 0.75rem;
+            color: #a0aec0;
+        }
+
         .canvas-viewport { 
-            width: 100%;
-            height: 600px; 
-            background: #000000; 
-            border: 1px solid var(--border-color); 
-            border-radius: 8px;
+            flex: 1;
+            height: 500px; 
+            background: #0a0d12; 
+            border: 1px solid #2d3748; 
+            border-radius: 0 8px 8px 0;
             position: relative;
             overflow: hidden;
             cursor: grab;
@@ -141,22 +158,43 @@
 
         .canvas-hud {
             position: absolute;
-            bottom: 12px;
-            left: 12px;
-            background: rgba(15, 23, 42, 0.75);
-            color: #f8fafc;
-            padding: 6px 12px;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(15, 20, 41, 0.85);
+            color: #cbd5e0;
+            padding: 8px 12px;
             border-radius: 6px;
-            font-size: 0.75rem;
+            font-size: 0.8rem;
             pointer-events: none;
             backdrop-filter: blur(4px);
-            letter-spacing: 0.3px;
+            border: 1px solid #2d3748;
+            line-height: 1.4;
+        }
+
+        .canvas-pointer-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(15, 20, 41, 0.85);
+            color: #60a5fa;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            pointer-events: none;
+            backdrop-filter: blur(4px);
+            border: 1px solid #2d3748;
+            font-family: 'Courier New', monospace;
+            line-height: 1.4;
         }
 
         #navMap { 
             width: 100%; 
-            height: 600px; 
+            height: 400px; 
             border-radius: 8px;
+        }
+
+        .plotly-container {
+            background: #1a1f2e;
         }
     </style>
 </head>
@@ -165,16 +203,16 @@
 <div class="container">
     <header>
         <h2>Geophysical Sub-Bottom Fast Viewer</h2>
-        <p class="subtitle">Client-side high performance SEG-Y trace and trackline visualizer.</p>
+        <p class="subtitle">Client-side high performance SEG-Y trace and trackline visualizer</p>
     </header>
     
     <div class="card">
         <div class="controls">
             <input type="file" id="sgyFile" accept=".sgy,.segy">
             <div class="slider-group">
-                <label for="clipSlider">Amplitude Clip Percentile:</label>
+                <label for="clipSlider">Amplitude Clip:</label>
                 <input type="range" id="clipSlider" min="90" max="99.9" step="0.1" value="98">
-                <span id="clipValue" style="min-width: 35px;">98</span>%
+                <span id="clipValue">98</span>%
             </div>
             <span id="status">Waiting for file upload...</span>
         </div>
@@ -182,17 +220,21 @@
 
     <div class="card">
         <div class="section-header">
-            <div class="section-title">Sub-Bottom Profile (Blue-White-Red Seismic Palette)</div>
-            <button class="btn-reset" id="resetViewBtn">Reset View & Zoom</button>
+            <div class="section-title">Sub-Bottom Profile</div>
+            <button class="btn-reset" id="resetViewBtn">Reset View</button>
         </div>
-        <div class="canvas-viewport" id="viewport">
-            <canvas id="seismicCanvas"></canvas>
-            <div class="canvas-hud">Controls: Scroll to zoom • Click & drag to pan</div>
+        <div class="canvas-container">
+            <div class="depth-scale" id="depthScale"></div>
+            <div class="canvas-viewport" id="viewport">
+                <canvas id="seismicCanvas"></canvas>
+                <div class="canvas-hud">Scroll: zoom | Drag: pan</div>
+                <div class="canvas-pointer-info" id="pointerInfo"></div>
+            </div>
         </div>
     </div>
 
     <div class="card">
-        <div class="section-title" style="margin-bottom: 12px;">Survey Trackline (Navigation)</div>
+        <div class="section-title">Survey Trackline (Longitude / Latitude)</div>
         <div id="navMap"></div>
     </div>
 </div>
@@ -201,8 +243,9 @@
     let globalTraces = [];
     let globalNavX = [];
     let globalNavY = [];
+    let samplingInterval = 1; // meters per sample (default)
     
-    // Offscreen rendering cache for fast pan/zoom performance
+    // Offscreen rendering cache
     let offscreenCanvas = document.createElement('canvas');
     let offscreenCtx = offscreenCanvas.getContext('2d');
 
@@ -213,6 +256,8 @@
     let isDragging = false;
     let startX = 0;
     let startY = 0;
+    let mouseCanvasX = 0;
+    let mouseCanvasY = 0;
 
     const sgyInput = document.getElementById('sgyFile');
     const clipSlider = document.getElementById('clipSlider');
@@ -222,12 +267,15 @@
     const canvas = document.getElementById('seismicCanvas');
     const ctx = canvas.getContext('2d');
     const resetViewBtn = document.getElementById('resetViewBtn');
+    const pointerInfo = document.getElementById('pointerInfo');
+    const depthScale = document.getElementById('depthScale');
 
-    // Resize canvas internal buffer to match container layout bounds
+    // Resize canvas to match container
     function initCanvasSize() {
         const rect = viewport.getBoundingClientRect();
         canvas.width = rect.width;
         canvas.height = rect.height;
+        updateDepthScale();
         drawScene();
     }
     window.addEventListener('resize', initCanvasSize);
@@ -247,7 +295,7 @@
         resetView();
     });
 
-    // Mouse Controls for Pan & Zoom
+    // Mouse Controls
     viewport.addEventListener('mousedown', (e) => {
         isDragging = true;
         startX = e.clientX - panX;
@@ -255,10 +303,20 @@
     });
 
     window.addEventListener('mousemove', (e) => {
+        const rect = viewport.getBoundingClientRect();
+        mouseCanvasX = e.clientX - rect.left;
+        mouseCanvasY = e.clientY - rect.top;
+
         if (!isDragging) return;
         panX = e.clientX - startX;
         panY = e.clientY - startY;
+        updateDepthScale();
         drawScene();
+    });
+
+    viewport.addEventListener('mousemove', (e) => {
+        if (globalTraces.length === 0) return;
+        updatePointerInfo();
     });
 
     window.addEventListener('mouseup', () => {
@@ -275,14 +333,13 @@
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
 
-        // Zoom centered on mouse position
         panX = mouseX - (mouseX - panX) * zoomFactor;
         panY = mouseY - (mouseY - panY) * zoomFactor;
         scale *= zoomFactor;
 
-        // Constrain zoom limits
         scale = Math.max(0.2, Math.min(scale, 50));
 
+        updateDepthScale();
         drawScene();
     }, { passive: false });
 
@@ -290,17 +347,78 @@
         scale = 1;
         panX = 0;
         panY = 0;
+        updateDepthScale();
         drawScene();
+    }
+
+    function updateDepthScale() {
+        depthScale.innerHTML = '';
+        if (globalTraces.length === 0) return;
+
+        const height = globalTraces[0].length;
+        const viewportHeight = viewport.clientHeight;
+        const pixelsPerMeter = (height * scale) / (samplingInterval * height);
+        const scalePx = viewportHeight;
+
+        // Calculate interval spacing
+        const targetPixelInterval = 40;
+        const meterInterval = 5;
+        const pixelInterval = (meterInterval / samplingInterval) * scale;
+
+        let startSample = Math.max(0, Math.floor(-panY / scale));
+        let endSample = Math.min(height, Math.ceil((viewportHeight - panY) / scale));
+
+        for (let sample = Math.ceil(startSample / meterInterval) * meterInterval; sample <= endSample; sample += meterInterval) {
+            const depthMeters = sample * samplingInterval;
+            const canvasPy = sample * scale + panY;
+
+            if (canvasPy >= 0 && canvasPy <= viewportHeight) {
+                const tick = document.createElement('div');
+                tick.style.position = 'absolute';
+                tick.style.top = canvasPy + 'px';
+                tick.style.width = '100%';
+                tick.style.height = '1px';
+                tick.style.background = '#2d3748';
+                tick.style.fontSize = '0.7rem';
+                tick.style.color = '#a0aec0';
+                tick.style.textAlign = 'center';
+                tick.style.lineHeight = '1px';
+                tick.style.paddingTop = '2px';
+                tick.textContent = depthMeters;
+                depthScale.appendChild(tick);
+            }
+        }
+    }
+
+    function updatePointerInfo() {
+        if (globalTraces.length === 0) return;
+
+        const rect = viewport.getBoundingClientRect();
+        const canvasX = (mouseCanvasX - panX) / scale;
+        const canvasY = (mouseCanvasY - panY) / scale;
+
+        const traceIdx = Math.floor(canvasX);
+        const sampleIdx = Math.floor(canvasY);
+
+        if (traceIdx >= 0 && traceIdx < globalTraces.length && 
+            sampleIdx >= 0 && sampleIdx < globalTraces[0].length) {
+            
+            const easting = globalNavX[traceIdx] || 0;
+            const northing = globalNavY[traceIdx] || 0;
+            const depth = sampleIdx * samplingInterval;
+
+            pointerInfo.innerHTML = `E: ${easting.toFixed(2)}<br>N: ${northing.toFixed(2)}<br>D: ${depth.toFixed(1)}m`;
+        }
     }
 
     sgyInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
 
-        statusTxt.textContent = "Reading file into memory...";
+        statusTxt.textContent = "Reading file...";
         const reader = new FileReader();
         reader.onload = function(event) {
-            statusTxt.textContent = "Parsing SEG-Y binary structures...";
+            statusTxt.textContent = "Parsing SEG-Y...";
             const arrayBuffer = event.target.result;
             parseSegy(arrayBuffer);
         };
@@ -313,7 +431,7 @@
             const formatCode = dataView.getInt16(3224, false); 
             
             if (formatCode !== 5 && formatCode !== 1) {
-                alert("Unsupported format code: " + formatCode + ". Please ensure export uses IEEE Float (Format 5).");
+                alert("Unsupported format: " + formatCode + ". Use IEEE Float (5).");
                 statusTxt.textContent = "Error: Unsupported format.";
                 return;
             }
@@ -323,7 +441,13 @@
             globalNavX = [];
             globalNavY = [];
             
-            statusTxt.textContent = "Extracting traces and navigation coordinates...";
+            statusTxt.textContent = "Extracting traces...";
+
+            // Get first trace to determine sampling
+            const dataView2 = new DataView(buffer);
+            const numSamples = dataView2.getInt16(3600 + 114, false);
+            const sampleInterval = dataView2.getInt16(3600 + 116, false);
+            samplingInterval = sampleInterval > 0 ? sampleInterval / 1000000 : 1;
 
             while (offset < buffer.byteLength) {
                 let scalar = dataView.getInt16(offset + 70, false);
@@ -358,11 +482,11 @@
             buildSeismicCache();
             resetView();
             renderNavigation();
-            statusTxt.textContent = `Success: Rendered ${globalTraces.length} traces.`;
+            statusTxt.textContent = `Success: ${globalTraces.length} traces.`;
 
         } catch (error) {
             console.error(error);
-            statusTxt.textContent = "Error parsing file. Check console.";
+            statusTxt.textContent = "Error parsing file.";
         }
     }
 
@@ -426,8 +550,6 @@
         ctx.save();
         ctx.translate(panX, panY);
         ctx.scale(scale, scale);
-        
-        // Draw cached offscreen seismic image onto interactive viewport canvas
         ctx.drawImage(offscreenCanvas, 0, 0);
         ctx.restore();
     }
@@ -440,32 +562,44 @@
             y: globalNavY,
             mode: 'lines',
             name: 'Vessel Track',
-            line: {color: '#2563eb', width: 2}
+            line: {color: '#3b82f6', width: 2}
         };
 
         const startPoint = {
             x: [globalNavX[0]],
             y: [globalNavY[0]],
             mode: 'markers',
-            name: 'Start of Line',
-            marker: {color: '#16a34a', size: 10, symbol: 'circle'}
+            name: 'Start',
+            marker: {color: '#10b981', size: 8, symbol: 'circle'}
         };
 
         const endPoint = {
             x: [globalNavX[globalNavX.length - 1]],
             y: [globalNavY[globalNavY.length - 1]],
             mode: 'markers',
-            name: 'End of Line',
-            marker: {color: '#dc2626', size: 10, symbol: 'square'}
+            name: 'End',
+            marker: {color: '#ef4444', size: 8, symbol: 'square'}
         };
 
         const layout = {
-            margin: { t: 30, r: 30, b: 40, l: 60 },
-            xaxis: { title: 'Easting / Longitude', scaleanchor: "y", scaleratio: 1, gridcolor: '#f1f5f9' },
-            yaxis: { title: 'Northing / Latitude', gridcolor: '#f1f5f9' },
+            margin: { t: 20, r: 30, b: 50, l: 70 },
+            xaxis: { 
+                title: 'Longitude (E)', 
+                scaleanchor: "y", 
+                scaleratio: 1, 
+                gridcolor: '#2d3748',
+                showgrid: true
+            },
+            yaxis: { 
+                title: 'Latitude (N)', 
+                gridcolor: '#2d3748',
+                showgrid: true
+            },
             showlegend: true,
-            paper_bgcolor: 'transparent',
-            plot_bgcolor: 'transparent'
+            paper_bgcolor: '#1a1f2e',
+            plot_bgcolor: '#0f1419',
+            font: { color: '#a0aec0' },
+            legend: { bgcolor: 'rgba(26,31,46,0.8)', bordercolor: '#2d3748' }
         };
 
         Plotly.newPlot('navMap', [traceLine, startPoint, endPoint], layout, {responsive: true});
