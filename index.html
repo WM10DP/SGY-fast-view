@@ -1,610 +1,1803 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sub-Bottom Fast Viewer</title>
-    <!-- Load Plotly for the Navigation Map -->
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <style>
-        * {
-            box-sizing: border-box;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sub-Bottom Profiler SEG-Y QC Viewer</title>
+<!--
+  Sub-Bottom Profiler SEG-Y QC Viewer (revised)
+  - Fully self-contained: no CDN / internet needed (works offline on the vessel).
+  - Parses SEG-Y rev0 / rev1 / rev2, big- or little-endian, IBM/IEEE/integer sample formats.
+  - Handles extended textual headers, variable trace length, truncated files, delay recording time,
+    coordinate scalars and units (length, arc-seconds, decimal degrees, DMS).
+  - Renders large lines with bounded image caches (no canvas-size crashes) and re-renders
+    full detail for the zoomed window.
+  - Included Motion QC block (Roll, Pitch, Heave) synched with Profile view and 
+    displaying top-right summary/cursor readout matching main HUD.
+-->
+<style>
+  :root {
+    --bg: #0f1419; --panel: #1a1f2e; --panel-2: #141926; --line: #2d3748; --line-2: #4a5568;
+    --text: #e4e6eb; --muted: #a0aec0; --accent: #3b82f6; --accent-2: #60a5fa;
+    --ok: #10b981; --warn: #f59e0b; --bad: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); padding: 20px; line-height: 1.45;
+  }
+  .container { max-width: 1440px; margin: auto; }
+  header { margin-bottom: 18px; }
+  h1 { font-size: 1.3rem; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 0.9rem; margin: 0; }
+  .card { background: var(--panel); padding: 16px; border-radius: 8px; border: 1px solid var(--line); margin-bottom: 16px; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .section-title { font-size: 1rem; font-weight: 600; }
+  .section-title small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+  .ctl { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; color: var(--text); }
+  .ctl label { color: var(--muted); }
+  input[type="range"] { accent-color: var(--accent); cursor: pointer; width: 130px; }
+  input[type="number"], select {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line-2);
+    border-radius: 6px; padding: 4px 6px; font-size: 0.85rem;
+  }
+  input[type="number"] { width: 84px; }
+  input[type="checkbox"] { accent-color: var(--accent); }
+  .file-drop {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px dashed var(--line-2);
+    border-radius: 8px; font-size: 0.85rem; color: var(--muted);
+  }
+  .file-drop.dragover { border-color: var(--accent); background: rgba(59,130,246,0.08); }
+  input[type="file"] { font-size: 13px; color: var(--muted); cursor: pointer; max-width: 260px; }
+  button {
+    background: #2d3748; border: 1px solid var(--line-2); padding: 6px 12px; border-radius: 6px;
+    font-size: 0.85rem; font-weight: 500; color: #cbd5e0; cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: var(--line-2); color: var(--text); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  details.advanced { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 0.88rem; }
+  details .controls { margin-top: 10px; }
+  .statusbar { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 0.88rem; }
+  #status { color: var(--accent-2); font-weight: 500; }
+  .progress { flex: 0 0 180px; height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; visibility: hidden; }
+  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
+  #messages:empty { display: none; }
+  .msg { padding: 8px 12px; border-radius: 6px; margin-top: 10px; font-size: 0.86rem; border-left: 3px solid; background: var(--panel-2); }
+  .msg.bad { border-color: var(--bad); color: #fecaca; }
+  .msg.warn { border-color: var(--warn); color: #fde68a; }
+  .msg.info { border-color: var(--accent); color: #bfdbfe; }
 
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-            background-color: #0f1419;
-            color: #e4e6eb;
-            margin: 0; 
-            padding: 20px; 
-        }
+  .profile-wrap {
+    position: relative; height: clamp(320px, 60vh, 640px); background: #0a0d12;
+    border: 1px solid var(--line); border-radius: 8px 8px 0 0; overflow: hidden; touch-action: none;
+  }
+  .rms-wrap { position: relative; height: 78px; background: #0a0d12; border: 1px solid var(--line); border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; }
+  
+  .motion-wrap {
+    position: relative; height: 160px; background: #0a0d12;
+    border: 1px solid var(--line); border-radius: 8px; overflow: hidden; touch-action: none;
+  }
+  .motion-legend { display: flex; gap: 16px; font-size: 0.8rem; margin-top: 8px; justify-content: center; }
 
-        .container { 
-            max-width: 1440px; 
-            margin: auto; 
-        }
+  canvas { display: block; width: 100%; height: 100%; }
+  #profileCanvas { cursor: grab; }
+  #profileCanvas.dragging { cursor: grabbing; }
+  .hud {
+    position: absolute; bottom: 10px; left: 72px; background: rgba(15,20,41,0.85); color: #cbd5e0;
+    padding: 6px 10px; border-radius: 6px; font-size: 0.78rem; pointer-events: none; border: 1px solid var(--line);
+  }
+  .readout {
+    position: absolute; background: rgba(15,20,41,0.88); color: var(--accent-2);
+    padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; pointer-events: none; border: 1px solid var(--line);
+    white-space: pre; font-variant-numeric: tabular-nums; line-height: 1.45; min-width: 170px;
+  }
+  .readout:empty { display: none; }
+  #readout { top: 36px; right: 66px; }
+  #motionReadout { top: 12px; right: 16px; }
 
-        header {
-            margin-bottom: 20px;
-        }
+  .empty-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.95rem; pointer-events: none; text-align: center; padding: 20px; }
 
-        h2 { 
-            font-size: 1.3rem;
-            font-weight: 600;
-            color: #e4e6eb;
-            margin: 0 0 6px 0; 
-        }
+  .grid-2 { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; }
+  .grid-2 > .card { margin-bottom: 0; }
+  @media (max-width: 980px) { .grid-2 { grid-template-columns: 1fr; } }
+  .nav-wrap { position: relative; height: 420px; background: #0a0d12; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; touch-action: none; }
+  #navCanvas { cursor: crosshair; }
 
-        .subtitle {
-            color: #a0aec0;
-            font-size: 0.9rem;
-            margin: 0;
-        }
-
-        .card {
-            background: #1a1f2e;
-            padding: 16px; 
-            border-radius: 8px; 
-            border: 1px solid #2d3748;
-            margin-bottom: 16px;
-        }
-
-        .controls { 
-            display: flex; 
-            flex-wrap: wrap;
-            gap: 16px; 
-            align-items: center; 
-        }
-
-        input[type="file"] { 
-            font-size: 13px; 
-            color: #a0aec0;
-            cursor: pointer;
-        }
-
-        .slider-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            color: #e4e6eb;
-        }
-
-        input[type="range"] {
-            accent-color: #3b82f6;
-            cursor: pointer;
-            height: 5px;
-        }
-
-        #status { 
-            font-weight: 500; 
-            font-size: 0.9rem;
-            color: #60a5fa;
-            margin-left: auto;
-        }
-
-        .section-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-
-        .section-title {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #e4e6eb;
-        }
-
-        .btn-reset {
-            background: #2d3748;
-            border: 1px solid #4a5568;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            color: #cbd5e0;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .btn-reset:hover {
-            background: #4a5568;
-            color: #e4e6eb;
-        }
-
-        /* Canvas Viewport */
-        .canvas-container {
-            position: relative;
-            display: flex;
-            gap: 0;
-        }
-
-        .depth-scale {
-            width: 50px;
-            background: #0f1419;
-            border: 1px solid #2d3748;
-            border-radius: 0 0 0 8px;
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 8px 0;
-            font-size: 0.75rem;
-            color: #a0aec0;
-        }
-
-        .canvas-viewport { 
-            flex: 1;
-            height: 500px; 
-            background: #0a0d12; 
-            border: 1px solid #2d3748; 
-            border-radius: 0 8px 8px 0;
-            position: relative;
-            overflow: hidden;
-            cursor: grab;
-        }
-
-        .canvas-viewport:active {
-            cursor: grabbing;
-        }
-
-        canvas { 
-            display: block; 
-            width: 100%;
-            height: 100%;
-        }
-
-        .canvas-hud {
-            position: absolute;
-            bottom: 10px;
-            left: 10px;
-            background: rgba(15, 20, 41, 0.85);
-            color: #cbd5e0;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 0.8rem;
-            pointer-events: none;
-            backdrop-filter: blur(4px);
-            border: 1px solid #2d3748;
-            line-height: 1.4;
-        }
-
-        .canvas-pointer-info {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(15, 20, 41, 0.85);
-            color: #60a5fa;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 0.8rem;
-            pointer-events: none;
-            backdrop-filter: blur(4px);
-            border: 1px solid #2d3748;
-            font-family: 'Courier New', monospace;
-            line-height: 1.4;
-        }
-
-        #navMap { 
-            width: 100%; 
-            height: 400px; 
-            border-radius: 8px;
-        }
-
-        .plotly-container {
-            background: #1a1f2e;
-        }
-    </style>
+  table.kv { width: 100%; border-collapse: collapse; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+  table.kv td { padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.kv td:first-child { color: var(--muted); width: 46%; }
+  table.kv tr.bad td:last-child { color: #fca5a5; }
+  table.kv tr.warn td:last-child { color: #fcd34d; }
+  table.kv tr.ok td:last-child { color: #6ee7b7; }
+  table.kv tr.zero td { opacity: 0.45; }
+  .scroll { max-height: 420px; overflow: auto; }
+  pre.textheader {
+    background: #0a0d12; border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow-x: auto;
+    font-size: 0.78rem; color: #cbd5e0; margin: 10px 0 0; line-height: 1.35;
+  }
+  .hdr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 12px; }
+  .hdr-grid h3 { font-size: 0.9rem; font-weight: 600; margin: 0 0 8px; }
+  .muted { color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) { .progress > div { transition: none; } }
+</style>
 </head>
 <body>
-
 <div class="container">
-    <header>
-        <h2>Geophysical Sub-Bottom Fast Viewer</h2>
-        <p class="subtitle">Client-side high performance SEG-Y trace and trackline visualizer</p>
-    </header>
-    
-    <div class="card">
-        <div class="controls">
-            <input type="file" id="sgyFile" accept=".sgy,.segy">
-            <div class="slider-group">
-                <label for="clipSlider">Amplitude Clip:</label>
-                <input type="range" id="clipSlider" min="90" max="99.9" step="0.1" value="98">
-                <span id="clipValue">98</span>%
-            </div>
-            <span id="status">Waiting for file upload...</span>
-        </div>
+  <header>
+    <h1>Sub-Bottom Profiler SEG-Y QC Viewer</h1>
+    <p class="subtitle">Runs entirely in your browser. Nothing is uploaded, and no internet connection is needed.</p>
+  </header>
+
+  <!-- ===================== Controls ===================== -->
+  <div class="card">
+    <div class="controls">
+      <div class="file-drop" id="dropZone">
+        <input type="file" id="sgyFile" accept=".sgy,.segy,.seg,.sgy.gz,*/*" aria-label="Choose SEG-Y file">
+        <span>or drop a file here</span>
+      </div>
+      <div class="ctl">
+        <label for="clipSlider">Clip</label>
+        <input type="range" id="clipSlider" min="50" max="100" step="0.1" value="98">
+        <span id="clipValue">98.0</span>%
+      </div>
+      <div class="ctl">
+        <label for="gainSel">Gain</label>
+        <select id="gainSel">
+          <option value="none">None</option>
+          <option value="agc">AGC</option>
+          <option value="tpow">Time power (t²)</option>
+        </select>
+        <input type="number" id="agcWin" min="0.01" step="0.5" value="5" title="AGC window (ms)" aria-label="AGC window in ms"> ms
+      </div>
+      <div class="ctl">
+        <label for="cmapSel">Colour</label>
+        <select id="cmapSel">
+          <option value="seismic">Blue-white-red</option>
+          <option value="grey">Grey (strong = black)</option>
+          <option value="greyrev">Grey (strong = white)</option>
+          <option value="copper">Copper</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label for="ampSel">Amplitude</label>
+        <select id="ampSel">
+          <option value="auto">Auto detect</option>
+          <option value="bipolar">Bipolar (full waveform)</option>
+          <option value="abs">Absolute / envelope</option>
+        </select>
+      </div>
+      <div class="ctl"><input type="checkbox" id="flipPol"><label for="flipPol">Reverse polarity</label></div>
+      <div class="ctl"><input type="checkbox" id="applyDelay" checked><label for="applyDelay">Apply delay (delrt)</label></div>
+      <div class="ctl">
+        <label for="velInput">Velocity</label>
+        <input type="number" id="velInput" min="100" max="10000" step="10" value="1500"> m/s
+      </div>
     </div>
 
-    <div class="card">
-        <div class="section-header">
-            <div class="section-title">Sub-Bottom Profile</div>
-            <button class="btn-reset" id="resetViewBtn">Reset View</button>
+    <details class="advanced">
+      <summary>Advanced header overrides (use when the header is wrong)</summary>
+      <div class="controls">
+        <div class="ctl">
+          <label for="endianSel">Byte order</label>
+          <select id="endianSel">
+            <option value="auto">Auto detect</option>
+            <option value="be">Big-endian (standard)</option>
+            <option value="le">Little-endian</option>
+          </select>
         </div>
-        <div class="canvas-container">
-            <div class="depth-scale" id="depthScale"></div>
-            <div class="canvas-viewport" id="viewport">
-                <canvas id="seismicCanvas"></canvas>
-                <div class="canvas-hud">Scroll: zoom | Drag: pan</div>
-                <div class="canvas-pointer-info" id="pointerInfo"></div>
-            </div>
+        <div class="ctl">
+          <label for="fmtSel">Sample format</label>
+          <select id="fmtSel">
+            <option value="auto">From binary header</option>
+            <option value="1">1 – IBM float 32</option>
+            <option value="2">2 – Int 32</option>
+            <option value="3">3 – Int 16</option>
+            <option value="5">5 – IEEE float 32</option>
+            <option value="6">6 – IEEE float 64</option>
+            <option value="8">8 – Int 8</option>
+            <option value="10">10 – UInt 32</option>
+            <option value="11">11 – UInt 16</option>
+            <option value="16">16 – UInt 8</option>
+          </select>
         </div>
-    </div>
+        <div class="ctl">
+          <label for="dtOverride">Sample interval</label>
+          <input type="number" id="dtOverride" min="0" step="1" placeholder="auto"> µs
+        </div>
+        <div class="ctl">
+          <label for="coordSrcSel">Coordinates</label>
+          <select id="coordSrcSel">
+            <option value="auto">Auto (source → group → CDP)</option>
+            <option value="source">Source X/Y (73–80)</option>
+            <option value="group">Group X/Y (81–88)</option>
+            <option value="cdp">CDP X/Y (181–188)</option>
+          </select>
+        </div>
+        <div class="ctl">
+          <label for="coordUnitSel">Coordinate units</label>
+          <select id="coordUnitSel">
+            <option value="auto">From trace header (89–90)</option>
+            <option value="length">Projected (m / ft)</option>
+            <option value="deg">Decimal degrees</option>
+            <option value="arcsec">Arc-seconds</option>
+            <option value="dms">DDDMMSS.ss</option>
+          </select>
+        </div>
+        <button id="reparseBtn" disabled>Re-read file with these settings</button>
+      </div>
+    </details>
 
-    <div class="card">
-        <div class="section-title">Survey Trackline (Longitude / Latitude)</div>
-        <div id="navMap"></div>
+    <div class="statusbar">
+      <span id="status">Choose a SEG-Y file to start.</span>
+      <div class="progress" id="progress"><div id="progressBar"></div></div>
     </div>
+    <div id="messages" role="status" aria-live="polite"></div>
+  </div>
+
+  <!-- ===================== Profile ===================== -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-title">Sub-bottom profile <small id="profileInfo"></small></div>
+      <div class="btn-row">
+        <button id="fitBtn" disabled>Fit view</button>
+        <button id="pngBtn" disabled>Save PNG</button>
+      </div>
+    </div>
+    <div class="profile-wrap" id="profileWrap">
+      <canvas id="profileCanvas" tabindex="0" aria-label="Seismic section display"></canvas>
+      <div class="empty-hint" id="profileEmpty">No file loaded</div>
+      <div class="hud" id="hud" hidden>Wheel: zoom · Shift+wheel: horizontal · Ctrl+wheel: vertical · Drag: pan · Double-click: fit</div>
+      <div class="readout" id="readout"></div>
+    </div>
+    <div class="rms-wrap" id="rmsWrap"><canvas id="rmsCanvas" aria-label="Trace RMS amplitude"></canvas></div>
+  </div>
+  
+  <!-- ===================== Motion QC ===================== -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-title">Motion QC <small class="muted">(Roll, Pitch, Heave)</small></div>
+      <div class="controls">
+        <div class="ctl"><label for="rollByte">Roll byte</label><input type="number" id="rollByte" min="1" max="237" placeholder="e.g. 132" aria-label="Roll byte offset"></div>
+        <div class="ctl"><label for="pitchByte">Pitch byte</label><input type="number" id="pitchByte" min="1" max="237" placeholder="e.g. 134" aria-label="Pitch byte offset"></div>
+        <div class="ctl"><label for="heaveByte">Heave byte</label><input type="number" id="heaveByte" min="1" max="237" placeholder="e.g. 136" aria-label="Heave byte offset"></div>
+        <div class="ctl">
+          <label for="motionFmt">Format</label>
+          <select id="motionFmt">
+            <option value="2">Int 16</option>
+            <option value="4">Int 32</option>
+            <option value="f4">Float 32</option>
+          </select>
+        </div>
+        <button id="motionApplyBtn" disabled>Apply & Re-read</button>
+      </div>
+    </div>
+    <div class="motion-wrap" id="motionWrap">
+      <canvas id="motionCanvas" aria-label="Motion QC chart"></canvas>
+      <div class="empty-hint" id="motionEmpty">Enter byte offsets and click Apply to view motion data</div>
+      <!-- Added top-right summary matching main HUD -->
+      <div class="readout" id="motionReadout"></div>
+    </div>
+    <div class="motion-legend">
+      <span style="color:#60a5fa">■ Roll</span>
+      <span style="color:#f87171">■ Pitch</span>
+      <span style="color:#34d399">■ Heave</span>
+    </div>
+  </div>
+
+  <!-- ===================== Nav + QC ===================== -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="section-header">
+        <div class="section-title">Survey trackline <small id="navInfo"></small></div>
+        <div class="btn-row">
+          <button id="navFitBtn" disabled>Fit</button>
+          <button id="navCsvBtn" disabled>Export nav CSV</button>
+        </div>
+      </div>
+      <div class="nav-wrap" id="navWrap">
+        <canvas id="navCanvas" aria-label="Navigation map"></canvas>
+        <div class="empty-hint" id="navEmpty">No navigation</div>
+      </div>
+      <p class="muted" style="font-size:0.8rem;margin:8px 0 0">Click the track to jump the profile to that trace. Amber rings mark position jumps.</p>
+    </div>
+    <div class="card">
+      <div class="section-header"><div class="section-title">QC summary</div></div>
+      <div class="scroll"><table class="kv" id="qcTable"><tbody><tr><td>Status</td><td>No file loaded</td></tr></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ===================== Headers ===================== -->
+  <div class="card" style="margin-top:16px">
+    <div class="section-header"><div class="section-title">Headers</div></div>
+    <details id="textHdrDetails">
+      <summary>Textual header <span id="textEnc" class="muted"></span></summary>
+      <pre class="textheader" id="textHeader">No file loaded</pre>
+    </details>
+    <div class="hdr-grid">
+      <div>
+        <h3>Binary header</h3>
+        <div class="scroll"><table class="kv" id="binTable"><tbody></tbody></table></div>
+      </div>
+      <div>
+        <h3>Trace header inspector</h3>
+        <div class="controls" style="margin-bottom:8px">
+          <button id="trPrev" disabled aria-label="Previous trace">◀</button>
+          <input type="number" id="trInput" min="1" value="1" disabled aria-label="Trace number">
+          <button id="trNext" disabled aria-label="Next trace">▶</button>
+          <label class="ctl"><input type="checkbox" id="hideZero" checked> Hide zero fields</label>
+        </div>
+        <div class="scroll"><table class="kv" id="trTable"><tbody></tbody></table></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
-    let globalTraces = [];
-    let globalNavX = [];
-    let globalNavY = [];
-    let samplingInterval = 1; // meters per sample (default)
+'use strict';
+(function () {
+
+/* =====================================================================
+ * 1. Constants and small utilities
+ * ===================================================================== */
+const MAX_IMG_DIM   = 4096;        // max width/height of cached images (safe for Safari/iOS canvas limits)
+const SAMPLE_BUDGET = 100e6;       // max decoded samples kept in memory (~400 MB as Float32)
+const MAX_FILE_BYTES = 2 ** 31 - 1;// ArrayBuffer limit in most browsers
+const PLOT_M = { l: 64, r: 58, t: 26, b: 4 }; // profile plot margins (CSS px)
+
+const FORMATS = {
+  1: { name: 'IBM float 32', bytes: 4 },  2: { name: 'Int 32', bytes: 4 },   3: { name: 'Int 16', bytes: 2 },
+  5: { name: 'IEEE float 32', bytes: 4 }, 6: { name: 'IEEE float 64', bytes: 8 }, 7: { name: 'Int 24', bytes: 3 },
+  8: { name: 'Int 8', bytes: 1 },         9: { name: 'Int 64', bytes: 8 },   10: { name: 'UInt 32', bytes: 4 },
+  11: { name: 'UInt 16', bytes: 2 },      12: { name: 'UInt 64', bytes: 8 }, 15: { name: 'UInt 24', bytes: 3 },
+  16: { name: 'UInt 8', bytes: 1 }
+};
+
+// EBCDIC (cp037) -> printable ASCII; non-printables become spaces
+const EBCDIC = "                                                                           .<(+|&         !$*); -/         ,%_>?         `:#@'=\" abcdefghi       jklmnopqr       ~stuvwxyz      ^         []    {ABCDEFGHI      }JKLMNOPQR      \\ STUVWXYZ      0123456789      ";
+
+class SegyError extends Error {}
+class Cancelled extends Error {}
+
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const yieldUI = () => new Promise((r) => setTimeout(r, 0));
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+
+function fmtBytes(b) {
+  const u = ['B', 'KB', 'MB', 'GB']; let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return `${b.toFixed(i ? 1 : 0)} ${u[i]}`;
+}
+function fmtNum(v, d = 2) { return isNum(v) ? v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 }) : '–'; }
+function niceStep(range, target) {
+  if (!(range > 0) || !isNum(range)) return 1;
+  const raw = range / Math.max(1, target);
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / p;
+  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p;
+}
+function decimalsFor(step) { return step >= 1 ? 0 : clamp(Math.ceil(-Math.log10(step)), 0, 8); }
+function median(arr) {
+  const a = Float64Array.from(arr).filter(Number.isFinite);
+  if (!a.length) return NaN;
+  a.sort();
+  const m = a.length >> 1;
+  return a.length % 2 ? a[m] : 0.5 * (a[m - 1] + a[m]);
+}
+function haversine(lon1, lat1, lon2, lat2) {
+  const R = 6371008.8, r = Math.PI / 180;
+  const dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function readFileAsArrayBuffer(blob) {
+  if (blob.arrayBuffer) return blob.arrayBuffer();
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => rej(fr.error || new Error('FileReader failed'));
+    fr.readAsArrayBuffer(blob);
+  });
+}
+
+/* =====================================================================
+ * 2. SEG-Y decoding core (no DOM access)
+ * ===================================================================== */
+const POW16 = new Float64Array(128);
+for (let e = 0; e < 128; e++) POW16[e] = Math.pow(16, e - 64) / 16777216;
+function ibm2ieee(u) {                       // u: unsigned 32-bit IBM float
+  const f = u & 0xFFFFFF;
+  if (f === 0) return 0;
+  const v = f * POW16[(u >>> 24) & 0x7F];
+  return (u >>> 31) ? -v : v;
+}
+
+function makeDecoder(fmt, le) {
+  switch (fmt) {
+    case 1:  return (dv, o) => ibm2ieee(dv.getUint32(o, le));
+    case 2:  return (dv, o) => dv.getInt32(o, le);
+    case 3:  return (dv, o) => dv.getInt16(o, le);
+    case 5:  return (dv, o) => dv.getFloat32(o, le);
+    case 6:  return (dv, o) => dv.getFloat64(o, le);
+    case 7:  return (dv, o) => { const v = le ? (dv.getUint8(o) | dv.getUint8(o + 1) << 8 | dv.getUint8(o + 2) << 16)
+                                             : (dv.getUint8(o) << 16 | dv.getUint8(o + 1) << 8 | dv.getUint8(o + 2));
+                                   return (v & 0x800000) ? v - 0x1000000 : v; };
+    case 8:  return (dv, o) => dv.getInt8(o);
+    case 9:  return (dv, o) => Number(dv.getBigInt64(o, le));
+    case 10: return (dv, o) => dv.getUint32(o, le);
+    case 11: return (dv, o) => dv.getUint16(o, le);
+    case 12: return (dv, o) => Number(dv.getBigUint64(o, le));
+    case 15: return (dv, o) => le ? (dv.getUint8(o) | dv.getUint8(o + 1) << 8 | dv.getUint8(o + 2) << 16)
+                                   : (dv.getUint8(o) << 16 | dv.getUint8(o + 1) << 8 | dv.getUint8(o + 2));
+    case 16: return (dv, o) => dv.getUint8(o);
+    default: return null;
+  }
+}
+
+function decodeTextHeader(bytes) {
+  let nAsciiSpace = 0, nEbcSpace = 0, nEbcC = 0, nAsciiPrint = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b === 0x20) nAsciiSpace++;
+    if (b === 0x40) nEbcSpace++;
+    if (b === 0xC3) nEbcC++;
+    if (b >= 0x20 && b < 0x7F) nAsciiPrint++;
+  }
+  const ebcdic = (nEbcSpace + nEbcC) > nAsciiSpace && nAsciiPrint < bytes.length * 0.9;
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    s += ebcdic ? EBCDIC[b] : (b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : ' ');
+  }
+  const lines = [];
+  for (let i = 0; i < s.length; i += 80) lines.push(s.slice(i, i + 80).replace(/\s+$/, ''));
+  return { encoding: ebcdic ? 'EBCDIC' : 'ASCII', text: lines.join('\n') };
+}
+
+function readBinaryHeader(dv, le) {
+  return {
+    le,
+    jobId: dv.getInt32(3200, le), lineNo: dv.getInt32(3204, le), reelNo: dv.getInt32(3208, le),
+    ntrPerEns: dv.getInt16(3212, le), auxPerEns: dv.getInt16(3214, le),
+    dt: dv.getUint16(3216, le), dtOrig: dv.getUint16(3218, le),
+    ns: dv.getUint16(3220, le), nsOrig: dv.getUint16(3222, le), fmt: dv.getUint16(3224, le),
+    fold: dv.getInt16(3226, le), sortCode: dv.getInt16(3228, le), measSys: dv.getInt16(3254, le),
+    extNs: dv.getUint32(3268, le), extDt: dv.getFloat64(3272, le), intConst: dv.getInt32(3296, le),
+    revMajor: dv.getUint8(3500), revMinor: dv.getUint8(3501),
+    fixedLen: dv.getInt16(3502, le), nExt: dv.getInt16(3504, le)
+  };
+}
+
+/* Detect byte order, format, extended headers, samples and trace layout. */
+function detectLayout(buf, opts) {
+  const len = buf.byteLength;
+  const warnings = [];
+  if (len < 3840) throw new SegyError(`File is only ${len} bytes. A SEG-Y file needs at least 3840 bytes (3200 text + 400 binary + 240 trace header).`);
+  const dv = new DataView(buf);
+  const hdrBE = readBinaryHeader(dv, false), hdrLE = readBinaryHeader(dv, true);
+
+  const score = (h) => {
+    let s = 0;
+    if (FORMATS[h.fmt]) s += 4;
+    if (h.intConst === 16909060) s += 8;
+    if (h.ns > 0 && h.ns < 32768) s += 1;
+    if (h.dt > 0 && h.dt <= 100000) s += 1;
+    const tns = dv.getUint16(3600 + 114, h.le);
+    if (tns > 0 && tns === h.ns) s += 2;
+    return s;
+  };
+  let h;
+  if (opts.endian === 'be') h = hdrBE;
+  else if (opts.endian === 'le') h = hdrLE;
+  else h = score(hdrLE) > score(hdrBE) ? hdrLE : hdrBE;
+  const le = h.le;
+
+  let fmt = opts.format > 0 ? opts.format : h.fmt;
+  if (!FORMATS[fmt]) {
+    throw new SegyError(`Unsupported or unreadable sample format code (big-endian reads ${hdrBE.fmt}, little-endian reads ${hdrLE.fmt}). ` +
+      `Open "Advanced header overrides", set the byte order and sample format, then re-read.`);
+  }
+  if (fmt === 4) throw new SegyError('Format 4 (fixed point with gain) is obsolete and not supported.');
+  const bps = FORMATS[fmt].bytes;
+
+  // Extended textual headers (rev1+). Rev0 files often carry junk here, so verify it.
+  let nExt = 0;
+  if (h.nExt > 0) {
+    if (3600 + h.nExt * 3200 + 240 <= len && h.nExt < 10000) nExt = h.nExt;
+    else warnings.push(['warn', `Binary header says ${h.nExt} extended text headers, which does not fit the file; ignored.`]);
+  } else if (h.nExt === -1) {                  // variable count, terminated by ((SEG: EndText))
+    let k = 0;
+    while (3600 + (k + 1) * 3200 <= len && k < 10000) {
+      const t = decodeTextHeader(new Uint8Array(buf, 3600 + k * 3200, 3200)).text;
+      k++;
+      if (/EndText/i.test(t)) break;
+    }
+    nExt = k;
+  } else if (h.nExt < 0) {
+    warnings.push(['warn', `Invalid extended text header count (${h.nExt}); ignored.`]);
+  }
+  if (nExt > 0) {
+    const okAt = (start) => {
+      if (start + 240 > len) return false;
+      const tns = dv.getUint16(start + 114, le), tdt = dv.getUint16(start + 116, le);
+      return (h.ns > 0 && tns === h.ns) || (h.dt > 0 && tdt === h.dt);
+    };
+    if (!okAt(3600 + nExt * 3200) && okAt(3600)) {
+      warnings.push(['warn', `Extended text header count (${nExt}) does not match the trace layout; treated as 0.`]);
+      nExt = 0;
+    }
+  }
+  const dataStart = 3600 + nExt * 3200;
+  if (dataStart + 240 > len) throw new SegyError('File ends before the first trace header.');
+
+  const th0ns = dv.getUint16(dataStart + 114, le), th0dt = dv.getUint16(dataStart + 116, le);
+  let ns = h.ns || (h.revMajor >= 2 && h.extNs > 0 && h.extNs < 1e7 ? h.extNs : 0) || th0ns;
+  if (!ns) throw new SegyError('Number of samples is 0 in both the binary header and the first trace header.');
+
+  let dtUs, dtSource;
+  if (opts.dtUs > 0) { dtUs = opts.dtUs; dtSource = 'user override'; }
+  else if (h.dt > 0) { dtUs = h.dt; dtSource = 'binary header'; }
+  else if (th0dt > 0) { dtUs = th0dt; dtSource = 'trace header'; }
+  else if (h.revMajor >= 2 && h.extDt > 0 && h.extDt < 1e7) { dtUs = h.extDt; dtSource = 'rev2 extended header'; }
+  else { dtUs = 1000; dtSource = 'assumed'; warnings.push(['bad', 'Sample interval is 0 in all headers. Assumed 1000 µs; set the real value under Advanced.']); }
+  if (!(opts.dtUs > 0) && h.dt > 0 && th0dt > 0 && h.dt !== th0dt) {
+    warnings.push(['warn', `Sample interval differs: binary header ${h.dt} µs, trace header ${th0dt} µs. Using binary header; override under Advanced if the trace value is correct.`]);
+  }
+
+  const payload = len - dataStart;
+  const fitsBin = payload % (240 + ns * bps) === 0;
+  let mode = 'variable';
+  if (h.fixedLen === 1 || fitsBin) mode = 'fixed';
+  else if (th0ns > 0 && th0ns !== ns && payload % (240 + th0ns * bps) === 0) {
+    warnings.push(['warn', `Samples per trace: binary header ${ns}, trace header ${th0ns}. File size matches ${th0ns}; using that.`]);
+    ns = th0ns; mode = 'fixed';
+  } else if (th0ns === 0) mode = 'fixed';
+
+  return {
+    le, fmt, bps, ns, dtUs, dtSource, nExt, dataStart, mode, bin: h, warnings,
+    textHeader: decodeTextHeader(new Uint8Array(buf, 0, 3200)),
+    endianAuto: opts.endian === 'auto'
+  };
+}
+
+/* Pass 1: walk trace headers, pass 2: decode (possibly decimated) samples. */
+async function parseSegy(buf, opts, token, progress) {
+  const L = detectLayout(buf, opts);
+  const dv = new DataView(buf), len = buf.byteLength, le = L.le;
+  const W = L.warnings;
+
+  // ---------- Pass 1: header scan ----------
+  let cap = Math.max(16, Math.ceil((len - L.dataStart) / (240 + L.ns * L.bps)) + 8);
+  let offsets = new Float64Array(cap), nsArr = new Uint32Array(cap);
+  let n = 0, o = L.dataStart, maxNs = 0, zeroNs = 0, dtMismatch = 0, trailing = 0, truncatedTrace = false;
+  const dt0 = dv.getUint16(L.dataStart + 116, le);
+  while (o + 240 <= len) {
+    let nst = L.ns;
+    if (L.mode === 'variable') {
+      nst = dv.getUint16(o + 114, le);
+      if (nst === 0) { nst = L.ns; zeroNs++; }
+    }
+    const tb = 240 + nst * L.bps;
+    if (o + tb > len) { truncatedTrace = true; trailing = len - o; break; }
+    if (n === cap) {
+      cap *= 2;
+      const no = new Float64Array(cap); no.set(offsets); offsets = no;
+      const nn = new Uint32Array(cap); nn.set(nsArr); nsArr = nn;
+    }
+    if (dt0 > 0 && dv.getUint16(o + 116, le) !== dt0) dtMismatch++;
+    offsets[n] = o; nsArr[n] = nst; if (nst > maxNs) maxNs = nst;
+    n++; o += tb;
+    if ((n & 0x3FFF) === 0) { progress(0.25 * o / len, `Scanning trace headers… ${n.toLocaleString()}`); await yieldUI(); if (token.cancelled) throw new Cancelled(); }
+  }
+  if (!truncatedTrace && o < len) trailing = len - o;
+  if (n === 0) throw new SegyError('No complete trace found after the file headers. Check byte order, sample format and samples per trace under Advanced.');
+  offsets = offsets.subarray(0, n); nsArr = nsArr.subarray(0, n);
+  if (truncatedTrace) W.push(['bad', `Last trace is incomplete (${trailing} bytes). The file is probably truncated; ${n.toLocaleString()} complete traces read.`]);
+  else if (trailing) W.push(['warn', `${trailing} trailing bytes after the last trace were ignored.`]);
+  if (zeroNs) W.push(['warn', `${zeroNs.toLocaleString()} trace headers have ns = 0; binary header value (${L.ns}) was used.`]);
+  if (dtMismatch > 0) W.push([dtMismatch > n * 0.05 ? 'bad' : 'warn', `${dtMismatch.toLocaleString()} traces have a sample interval different from the first trace. If this is large, the trace layout may be misread.`]);
+
+  // ---------- Per-trace header fields (all traces) ----------
+  const H = {
+    tracl: new Int32Array(n), fldr: new Int32Array(n), cdp: new Int32Array(n),
+    scalco: new Int16Array(n), counit: new Int16Array(n), delrt: new Int16Array(n),
+    sx: new Int32Array(n), sy: new Int32Array(n), gx: new Int32Array(n), gy: new Int32Array(n),
+    cdpx: new Int32Array(n), cdpy: new Int32Array(n), tsec: new Float64Array(n),
+    roll: new Float64Array(n), pitch: new Float64Array(n), heave: new Float64Array(n)
+  };
+  
+  const mt = opts.motionFmt;
+  const getVal = (p, byteOff) => {
+    if (!byteOff || byteOff < 1 || byteOff > 237) return NaN;
+    const off = p + byteOff - 1; 
+    try {
+      if (mt === '2') return dv.getInt16(off, le);
+      if (mt === '4') return dv.getInt32(off, le);
+      if (mt === 'f4') return dv.getFloat32(off, le);
+    } catch(e) { return NaN; }
+    return NaN;
+  };
+
+  let nTime = 0;
+  for (let i = 0; i < n; i++) {
+    const p = offsets[i];
+    H.tracl[i] = dv.getInt32(p, le); H.fldr[i] = dv.getInt32(p + 8, le); H.cdp[i] = dv.getInt32(p + 20, le);
+    H.scalco[i] = dv.getInt16(p + 70, le);
+    H.sx[i] = dv.getInt32(p + 72, le); H.sy[i] = dv.getInt32(p + 76, le);
+    H.gx[i] = dv.getInt32(p + 80, le); H.gy[i] = dv.getInt32(p + 84, le);
+    H.counit[i] = dv.getInt16(p + 88, le); H.delrt[i] = dv.getInt16(p + 108, le);
+    H.cdpx[i] = dv.getInt32(p + 180, le); H.cdpy[i] = dv.getInt32(p + 184, le);
     
-    // Offscreen rendering cache
-    let offscreenCanvas = document.createElement('canvas');
-    let offscreenCtx = offscreenCanvas.getContext('2d');
+    H.roll[i] = getVal(p, opts.rollByte);
+    H.pitch[i] = getVal(p, opts.pitchByte);
+    H.heave[i] = getVal(p, opts.heaveByte);
+    
+    let yr = dv.getInt16(p + 156, le);
+    const day = dv.getInt16(p + 158, le), hr = dv.getInt16(p + 160, le), mi = dv.getInt16(p + 162, le), se = dv.getInt16(p + 164, le);
+    if (yr > 0 && yr < 100) yr += yr < 70 ? 2000 : 1900;
+    if (yr >= 1970 && yr < 2200 && day >= 1 && day <= 366 && hr >= 0 && hr < 24 && mi >= 0 && mi < 60 && se >= 0 && se < 61) {
+      H.tsec[i] = Date.UTC(yr, 0, 1) / 1000 + (day - 1) * 86400 + hr * 3600 + mi * 60 + se; nTime++;
+    } else H.tsec[i] = NaN;
+  }
+  H.hasTime = nTime > n * 0.5;
 
-    // Pan & Zoom View State
-    let scale = 1;
-    let panX = 0;
-    let panY = 0;
-    let isDragging = false;
-    let startX = 0;
-    let startY = 0;
-    let mouseCanvasX = 0;
-    let mouseCanvasY = 0;
+  // ---------- Pass 2: sample decode ----------
+  let step = Math.max(1, Math.ceil((n * maxNs) / SAMPLE_BUDGET));
+  let data = null, nLoad = 0;
+  while (!data) {
+    nLoad = Math.ceil(n / step);
+    try { data = new Float32Array(nLoad * maxNs); }
+    catch (e) { if (step > n) throw new SegyError('Not enough browser memory to load any traces.'); step *= 2; }
+  }
+  if (step > 1) W.push(['info', `Large file: 1 of every ${step} traces loaded for display (${nLoad.toLocaleString()} of ${n.toLocaleString()}). Navigation and header QC use all traces.`]);
 
-    const sgyInput = document.getElementById('sgyFile');
-    const clipSlider = document.getElementById('clipSlider');
-    const clipValue = document.getElementById('clipValue');
-    const statusTxt = document.getElementById('status');
-    const viewport = document.getElementById('viewport');
-    const canvas = document.getElementById('seismicCanvas');
-    const ctx = canvas.getContext('2d');
-    const resetViewBtn = document.getElementById('resetViewBtn');
-    const pointerInfo = document.getElementById('pointerInfo');
-    const depthScale = document.getElementById('depthScale');
-
-    // Resize canvas to match container
-    function initCanvasSize() {
-        const rect = viewport.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-        updateDepthScale();
-        drawScene();
+  const traceIdx = new Int32Array(nLoad), nsLoaded = new Int32Array(nLoad);
+  const rms = new Float32Array(nLoad), maxAbs = new Float32Array(nLoad);
+  const decode = makeDecoder(L.fmt, le);
+  let gMin = Infinity, gMax = -Infinity, nNeg = 0, nNonZero = 0, nonFinite = 0, dead = 0;
+  for (let k = 0; k < nLoad; k++) {
+    const t = k * step, nst = nsArr[t], base = k * maxNs, p0 = offsets[t] + 240;
+    traceIdx[k] = t; nsLoaded[k] = nst;
+    if (L.fmt === 5 && le) data.set(new Float32Array(buf.slice(p0, p0 + nst * 4)), base);
+    else if (L.fmt === 5) { for (let i = 0, p = p0; i < nst; i++, p += 4) data[base + i] = dv.getFloat32(p, false); }
+    else { for (let i = 0, p = p0; i < nst; i++, p += L.bps) data[base + i] = decode(dv, p); }
+    let ss = 0, ma = 0;
+    for (let i = base, e = base + nst; i < e; i++) {
+      let v = data[i];
+      if (!Number.isFinite(v)) { data[i] = v = 0; nonFinite++; }
+      if (v !== 0) { nNonZero++; if (v < 0) nNeg++; }
+      if (v < gMin) gMin = v; if (v > gMax) gMax = v;
+      ss += v * v; const a = v < 0 ? -v : v; if (a > ma) ma = a;
     }
-    window.addEventListener('resize', initCanvasSize);
+    rms[k] = Math.sqrt(ss / Math.max(1, nst)); maxAbs[k] = ma;
+    if (ma === 0) dead++;
+    if ((k & 0x3FF) === 0) { progress(0.25 + 0.7 * k / nLoad, `Decoding samples… ${Math.round(100 * k / nLoad)}%`); await yieldUI(); if (token.cancelled) throw new Cancelled(); }
+  }
+  if (nonFinite) W.push(['bad', `${nonFinite.toLocaleString()} NaN/Inf samples were set to 0. Check the sample format and byte order.`]);
+  if (dead) W.push(['warn', `${dead.toLocaleString()} dead (all-zero) traces among loaded traces.`]);
+  const envelope = nNonZero > 0 && nNeg <= nNonZero * 1e-4;
+  if (L.fmt === 1 && gMax - gMin > 0 && Math.max(Math.abs(gMin), Math.abs(gMax)) > 1e30) {
+    W.push(['bad', 'Amplitudes are huge for IBM float. The data may actually be IEEE (format 5); try the override.']);
+  }
 
-    clipSlider.addEventListener('input', (e) => {
-        clipValue.textContent = e.target.value;
-    });
+  const nav = buildNav(H, n, L, opts, W);
+  const rmsMed = median(rms.filter((x) => x > 0)) || 1;
 
-    clipSlider.addEventListener('change', () => {
-        if(globalTraces.length > 0) {
-            buildSeismicCache();
-            drawScene();
-        }
-    });
+  return { L, n, nLoad, step, maxNs, offsets, nsArr, H, data, traceIdx, nsLoaded, rms, maxAbs,
+           gMin, gMax, envelope, dead, nonFinite, nav, rmsMed, fileSize: len };
+}
 
-    resetViewBtn.addEventListener('click', () => {
-        resetView();
-    });
-
-    // Mouse Controls
-    viewport.addEventListener('mousedown', (e) => {
-        isDragging = true;
-        startX = e.clientX - panX;
-        startY = e.clientY - panY;
-    });
-
-    window.addEventListener('mousemove', (e) => {
-        const rect = viewport.getBoundingClientRect();
-        mouseCanvasX = e.clientX - rect.left;
-        mouseCanvasY = e.clientY - rect.top;
-
-        if (!isDragging) return;
-        panX = e.clientX - startX;
-        panY = e.clientY - startY;
-        updateDepthScale();
-        drawScene();
-    });
-
-    viewport.addEventListener('mousemove', (e) => {
-        if (globalTraces.length === 0) return;
-        updatePointerInfo();
-    });
-
-    window.addEventListener('mouseup', () => {
-        isDragging = false;
-    });
-
-    viewport.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        const zoomIntensity = 0.12;
-        const wheel = e.deltaY < 0 ? 1 : -1;
-        const zoomFactor = Math.exp(wheel * zoomIntensity);
-
-        const rect = viewport.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-
-        panX = mouseX - (mouseX - panX) * zoomFactor;
-        panY = mouseY - (mouseY - panY) * zoomFactor;
-        scale *= zoomFactor;
-
-        scale = Math.max(0.2, Math.min(scale, 50));
-
-        updateDepthScale();
-        drawScene();
-    }, { passive: false });
-
-    function resetView() {
-        scale = 1;
-        panX = 0;
-        panY = 0;
-        updateDepthScale();
-        drawScene();
+/* Resolve coordinates: source, scalar, units, geographic detection. */
+function buildNav(H, n, L, opts, W) {
+  const sets = { source: [H.sx, H.sy], group: [H.gx, H.gy], cdp: [H.cdpx, H.cdpy] };
+  const nonZero = (s) => { let c = 0; for (let i = 0; i < n; i++) if (s[0][i] !== 0 || s[1][i] !== 0) c++; return c; };
+  let srcName = opts.coordSrc;
+  if (srcName === 'auto') {
+    srcName = 'source';
+    for (const k of ['source', 'group', 'cdp']) if (nonZero(sets[k]) > 0) { srcName = k; break; }
+  }
+  const [RX, RY] = sets[srcName];
+  const x = new Float64Array(n), y = new Float64Array(n);
+  let unitsUsed = new Set(), badScalar = 0, zero = 0;
+  for (let i = 0; i < n; i++) {
+    let sc = H.scalco[i];
+    if (sc !== 0 && ![1, 10, 100, 1000, 10000, 100000, 1000000].includes(Math.abs(sc))) badScalar++;
+    const m = sc === 0 ? 1 : sc < 0 ? -1 / sc : sc;
+    let X = RX[i] * m, Y = RY[i] * m;
+    if (RX[i] === 0 && RY[i] === 0) { x[i] = y[i] = NaN; zero++; continue; }
+    let unit = opts.coordUnits;
+    if (unit === 'auto') unit = H.counit[i] === 2 ? 'arcsec' : H.counit[i] === 3 ? 'deg' : H.counit[i] === 4 ? 'dms' : 'length';
+    unitsUsed.add(unit);
+    if (unit === 'arcsec') { X /= 3600; Y /= 3600; }
+    else if (unit === 'dms') { X = dms2deg(X); Y = dms2deg(Y); }
+    x[i] = X; y[i] = Y;
+  }
+  if (badScalar) W.push(['warn', `${badScalar.toLocaleString()} traces have a coordinate scalar (bytes 71–72) that is not a power of 10.`]);
+  let geographic = unitsUsed.size > 0 && [...unitsUsed].every((u) => u !== 'length');
+  // Heuristic: header says "length" but values look like degrees
+  if (!geographic && opts.coordUnits === 'auto' && zero < n) {
+    let allSmall = true;
+    for (let i = 0; i < n; i++) if (isNum(x[i]) && (Math.abs(x[i]) > 180 || Math.abs(y[i]) > 90)) { allSmall = false; break; }
+    if (allSmall) { geographic = true; W.push(['warn', 'Coordinate units say "length" but all values are within ±180/±90; treated as decimal degrees. Override under Advanced if wrong.']); }
+    else {
+      let arc = true;
+      for (let i = 0; i < n; i++) if (isNum(x[i]) && (Math.abs(x[i]) > 648000 || Math.abs(y[i]) > 324000 || Math.abs(y[i]) < 1)) { arc = false; break; }
+      // (only a hint; projected coordinates can also fall in this range)
+      if (arc && H.counit[0] === 0) W.push(['info', 'Coordinate unit code is 0 (unset). If the track looks wrong, try "Arc-seconds" under Advanced.']);
     }
+  }
+  if (geographic) {
+    let bad = 0;
+    for (let i = 0; i < n; i++) if (isNum(x[i]) && (Math.abs(x[i]) > 180 || Math.abs(y[i]) > 90)) { x[i] = y[i] = NaN; bad++; }
+    if (bad) W.push(['bad', `${bad.toLocaleString()} positions are outside ±180° / ±90° and were discarded.`]);
+  }
+  if (zero === n) W.push(['bad', 'No coordinates found in source, group or CDP X/Y fields.']);
+  else if (zero) W.push(['warn', `${zero.toLocaleString()} traces have zero coordinates (nav dropouts).`]);
 
-    function updateDepthScale() {
-        depthScale.innerHTML = '';
-        if (globalTraces.length === 0) return;
-
-        const height = globalTraces[0].length;
-        const viewportHeight = viewport.clientHeight;
-        const pixelsPerMeter = (height * scale) / (samplingInterval * height);
-        const scalePx = viewportHeight;
-
-        // Calculate interval spacing
-        const targetPixelInterval = 40;
-        const meterInterval = 5;
-        const pixelInterval = (meterInterval / samplingInterval) * scale;
-
-        let startSample = Math.max(0, Math.floor(-panY / scale));
-        let endSample = Math.min(height, Math.ceil((viewportHeight - panY) / scale));
-
-        for (let sample = Math.ceil(startSample / meterInterval) * meterInterval; sample <= endSample; sample += meterInterval) {
-            const depthMeters = sample * samplingInterval;
-            const canvasPy = sample * scale + panY;
-
-            if (canvasPy >= 0 && canvasPy <= viewportHeight) {
-                const tick = document.createElement('div');
-                tick.style.position = 'absolute';
-                tick.style.top = canvasPy + 'px';
-                tick.style.width = '100%';
-                tick.style.height = '1px';
-                tick.style.background = '#2d3748';
-                tick.style.fontSize = '0.7rem';
-                tick.style.color = '#a0aec0';
-                tick.style.textAlign = 'center';
-                tick.style.lineHeight = '1px';
-                tick.style.paddingTop = '2px';
-                tick.textContent = depthMeters;
-                depthScale.appendChild(tick);
-            }
-        }
+  const feet = L.bin.measSys === 2;
+  const toM = geographic ? 1 : feet ? 0.3048 : 1;
+  // along-track spacing & QC
+  const dist = new Float64Array(n); dist.fill(NaN);
+  const cum = new Float64Array(n);
+  let prev = -1, total = 0, dup = 0;
+  for (let i = 0; i < n; i++) {
+    if (!isNum(x[i])) { cum[i] = total; continue; }
+    if (prev >= 0) {
+      const d = geographic ? haversine(x[prev], y[prev], x[i], y[i]) : Math.hypot(x[i] - x[prev], y[i] - y[prev]) * toM;
+      dist[i] = d / (i - prev);
+      if (d === 0) dup++;
+      total += d;
     }
+    cum[i] = total; prev = i;
+  }
+  const medSpacing = median(dist.filter((d) => d > 0));   // ignore duplicate fixes
+  const jumps = [];
+  if (isNum(medSpacing)) {
+    const thr = Math.max(medSpacing * 10, 1);
+    for (let i = 0; i < n; i++) if (dist[i] > thr) jumps.push(i);
+  }
+  if (jumps.length) W.push(['warn', `${jumps.length.toLocaleString()} position jumps larger than 10× the median shot spacing.`]);
+  if (dup > n * 0.2) W.push(['warn', `${dup.toLocaleString()} consecutive duplicate positions; navigation may be updated slower than the ping rate.`]);
 
-    function updatePointerInfo() {
-        if (globalTraces.length === 0) return;
-
-        const rect = viewport.getBoundingClientRect();
-        const canvasX = (mouseCanvasX - panX) / scale;
-        const canvasY = (mouseCanvasY - panY) / scale;
-
-        const traceIdx = Math.floor(canvasX);
-        const sampleIdx = Math.floor(canvasY);
-
-        if (traceIdx >= 0 && traceIdx < globalTraces.length && 
-            sampleIdx >= 0 && sampleIdx < globalTraces[0].length) {
-            
-            const easting = globalNavX[traceIdx] || 0;
-            const northing = globalNavY[traceIdx] || 0;
-            const depth = sampleIdx * samplingInterval;
-
-            pointerInfo.innerHTML = `E: ${easting.toFixed(2)}<br>N: ${northing.toFixed(2)}<br>D: ${depth.toFixed(1)}m`;
-        }
+  // time QC
+  let speedKn = NaN, timeGaps = 0, timeBack = 0, duration = NaN;
+  if (H.hasTime) {
+    const dts = [];
+    let pt = -1, t0 = NaN, t1 = NaN;
+    for (let i = 0; i < n; i++) {
+      if (!isNum(H.tsec[i])) continue;
+      if (!isNum(t0)) t0 = H.tsec[i];
+      t1 = H.tsec[i];
+      if (pt >= 0) { const d = H.tsec[i] - H.tsec[pt]; if (d < 0) timeBack++; dts.push(d); }
+      pt = i;
     }
+    duration = t1 - t0;
+    const mdt = median(dts);
+    const thr = Math.max(5, (mdt || 0) * 20);
+    for (const d of dts) if (d > thr) timeGaps++;
+    if (duration > 0 && total > 0) speedKn = (total / duration) * 1.943844;
+    if (timeBack) W.push(['bad', `Time goes backwards ${timeBack} times in trace headers.`]);
+    if (timeGaps) W.push(['warn', `${timeGaps} recording time gaps longer than ${thr.toFixed(0)} s.`]);
+  }
+  let ffidBack = 0;
+  for (let i = 1; i < n; i++) if (H.fldr[i] < H.fldr[i - 1]) ffidBack++;
+  if (ffidBack) W.push(['warn', `FFID (bytes 9–12) decreases ${ffidBack} times; check for merged or re-ordered files.`]);
 
-    sgyInput.addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
+  return { x, y, src: srcName, geographic, feet, units: [...unitsUsed], zero, dist, cum, total, medSpacing, jumps,
+           dup, speedKn, timeGaps, timeBack, duration, ffidBack };
+}
+function dms2deg(v) {
+  const s = v < 0 ? -1 : 1; v = Math.abs(v);
+  const d = Math.floor(v / 10000), m = Math.floor((v - d * 10000) / 100), sec = v - d * 10000 - m * 100;
+  return s * (d + m / 60 + sec / 3600);
+}
 
-        statusTxt.textContent = "Reading file...";
-        const reader = new FileReader();
-        reader.onload = function(event) {
-            statusTxt.textContent = "Parsing SEG-Y...";
-            const arrayBuffer = event.target.result;
-            parseSegy(arrayBuffer);
-        };
-        reader.readAsArrayBuffer(file);
+/* =====================================================================
+ * 3. Application state and UI wiring
+ * ===================================================================== */
+const S = {
+  file: null, seg: null, token: null,
+  rows: { total: 0, tMinMs: 0, dtMs: 1, offset: null, delayApplied: false },
+  disp: { clip: 1, abs: false, lut: null, gen: 0 },
+  overview: null, detail: null, detailTimer: 0,
+  view: { u0: 0, v0: 0, sx: 1, sy: 1, fitted: true },
+  cursorTrace: -1, highlightTrace: -1,
+  nav: { cx: 0, cy: 0, s: 1, pts: null, fitted: true, hover: -1 },
+  inspect: 1, motionSummaryText: '', motionHover: false
+};
+
+const pc = $('profileCanvas'), pctx = pc.getContext('2d');
+const rc = $('rmsCanvas'), rctx = rc.getContext('2d');
+const mc = $('motionCanvas'), mctx = mc.getContext('2d');
+const nc = $('navCanvas'), nctx = nc.getContext('2d');
+
+function setStatus(text, frac) {
+  $('status').textContent = text;
+  const pg = $('progress');
+  if (frac === undefined || frac === null) pg.style.visibility = 'hidden';
+  else { pg.style.visibility = 'visible'; $('progressBar').style.width = `${Math.round(clamp(frac, 0, 1) * 100)}%`; }
+}
+function showMessages(list) {
+  const box = $('messages'); box.textContent = '';
+  const order = { bad: 0, warn: 1, info: 2 };
+  [...list].sort((a, b) => order[a[0]] - order[b[0]]).forEach(([lvl, txt]) => {
+    const d = document.createElement('div'); d.className = `msg ${lvl}`; d.textContent = txt; box.appendChild(d);
+  });
+}
+function addMessage(lvl, txt) {
+  const d = document.createElement('div'); d.className = `msg ${lvl}`; d.textContent = txt; $('messages').prepend(d);
+}
+function getOpts() {
+  return {
+    endian: $('endianSel').value,
+    format: $('fmtSel').value === 'auto' ? 0 : parseInt($('fmtSel').value, 10),
+    dtUs: parseFloat($('dtOverride').value) || 0,
+    coordSrc: $('coordSrcSel').value,
+    coordUnits: $('coordUnitSel').value,
+    rollByte: parseInt($('rollByte').value, 10) || 0,
+    pitchByte: parseInt($('pitchByte').value, 10) || 0,
+    heaveByte: parseInt($('heaveByte').value, 10) || 0,
+    motionFmt: $('motionFmt').value
+  };
+}
+function setEnabled(on) {
+  ['fitBtn', 'pngBtn', 'navFitBtn', 'navCsvBtn', 'reparseBtn', 'motionApplyBtn', 'trPrev', 'trNext', 'trInput'].forEach((id) => { $(id).disabled = !on; });
+  $('hud').hidden = !on;
+  $('profileEmpty').hidden = on;
+}
+
+// ---------- file loading ----------
+async function loadFile(file) {
+  if (!file) return;
+  if (S.token) S.token.cancelled = true;
+  const token = { cancelled: false }; S.token = token;
+  S.file = file; S.seg = null; S.overview = S.detail = null;
+  setEnabled(false);
+  $('profileEmpty').textContent = 'Loading…'; $('profileEmpty').hidden = false;
+  $('navEmpty').hidden = false;
+  $('messages').textContent = '';
+  drawAll();
+  try {
+    if (file.size > MAX_FILE_BYTES) {
+      throw new SegyError(`${file.name} is ${fmtBytes(file.size)}. Browsers cannot hold files over 2 GB in memory; use segy_qc.R, which reads trace by trace.`);
+    }
+    setStatus(`Reading ${file.name} (${fmtBytes(file.size)})…`, 0.02);
+    let buf;
+    try { buf = await readFileAsArrayBuffer(file); }
+    catch (e) { throw new SegyError(`The browser could not read the file: ${e.message || e}`); }
+    if (token.cancelled) return;
+    const seg = await parseSegy(buf, getOpts(), token, (f, msg) => setStatus(msg, f));
+    buf = null;
+    if (token.cancelled) return;
+    S.seg = seg;
+    // envelope data looks best in greyscale
+    if (seg.envelope && $('ampSel').value === 'auto' && $('cmapSel').value === 'seismic') $('cmapSel').value = 'grey';
+    setupRows();
+    setStatus('Rendering…', 0.97); await yieldUI();
+    computeDisplay();
+    fitView(); fitNav();
+    fillHeaders(); fillQC();
+    showMessages(seg.L.warnings);
+    setEnabled(true);
+    S.inspect = 1; $('trInput').max = seg.n; $('trInput').value = 1; inspectTrace(1);
+    $('profileInfo').textContent = `${file.name} · ${seg.n.toLocaleString()} traces · ${seg.maxNs.toLocaleString()} samples · ${(seg.L.dtUs / 1000).toFixed(3)} ms`;
+    setStatus(`Loaded ${seg.n.toLocaleString()} traces from ${file.name}.`);
+    drawAll();
+  } catch (err) {
+    if (err instanceof Cancelled) return;
+    if (err instanceof SegyError) console.warn(err.message); else console.error(err);
+    S.seg = null;
+    $('profileEmpty').textContent = 'Could not load this file'; $('profileEmpty').hidden = false;
+    setStatus('Load failed.');
+    showMessages([['bad', err instanceof SegyError ? err.message : `Unexpected error: ${err.message || err}`]]);
+    if (!(err instanceof SegyError)) addMessage('info', 'Try the Advanced header overrides (byte order, format), or review the file with segy_qc.R.');
+    $('reparseBtn').disabled = !S.file;
+    $('motionApplyBtn').disabled = !S.file;
+    drawAll();
+  }
+}
+
+$('sgyFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; loadFile(f); });
+$('reparseBtn').addEventListener('click', () => loadFile(S.file));
+$('motionApplyBtn').addEventListener('click', () => loadFile(S.file));
+
+const dz = $('dropZone');
+['dragenter', 'dragover'].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('dragover'); }));
+['dragleave', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); if (ev === 'drop' || !e.relatedTarget) dz.classList.remove('dragover'); }));
+document.addEventListener('drop', (e) => { const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) loadFile(f); });
+
+/* =====================================================================
+ * 4. Display: rows (time grid), gain, clip, colour, image caches
+ * ===================================================================== */
+function setupRows() {
+  const seg = S.seg; if (!seg) return;
+  const dtMs = seg.L.dtUs / 1000;
+  const off = new Int32Array(seg.nLoad);
+  let tMin = 0, total = seg.maxNs, applied = false;
+  if ($('applyDelay').checked) {
+    let dMin = Infinity, dMax = -Infinity, tEnd = -Infinity;
+    for (let k = 0; k < seg.nLoad; k++) {
+      const d = seg.H.delrt[seg.traceIdx[k]];
+      if (d < dMin) dMin = d; if (d > dMax) dMax = d;
+      const e = d + seg.nsLoaded[k] * dtMs; if (e > tEnd) tEnd = e;
+    }
+    const rowsNeeded = Math.ceil((tEnd - dMin) / dtMs);
+    if (dMin !== 0 || dMax !== 0) {
+      if (rowsNeeded > seg.maxNs * 20) {
+        addMessage('warn', `Delay recording time varies from ${dMin} to ${dMax} ms, which is implausible for this record length; delay not applied.`);
+      } else {
+        tMin = dMin; total = rowsNeeded; applied = true;
+        for (let k = 0; k < seg.nLoad; k++) off[k] = Math.round((seg.H.delrt[seg.traceIdx[k]] - dMin) / dtMs);
+      }
+    }
+  }
+  S.rows = { total: Math.max(1, total), tMinMs: tMin, dtMs, offset: off, delayApplied: applied };
+}
+
+function buildLUT(name) {
+  const stops = {
+    seismic: [[0, 16, 78, 139], [0.5, 255, 255, 255], [1, 139, 0, 0]],
+    grey:    [[0, 255, 255, 255], [1, 0, 0, 0]],
+    greyrev: [[0, 0, 0, 0], [1, 255, 255, 255]],
+    copper:  [[0, 0, 0, 0], [0.55, 196, 110, 50], [1, 255, 236, 200]]
+  }[name] || [[0, 0, 0, 0], [1, 255, 255, 255]];
+  const lut = new Uint8ClampedArray(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    let j = 0; while (j < stops.length - 2 && t > stops[j + 1][0]) j++;
+    const a = stops[j], b = stops[j + 1], f = (t - a[0]) / (b[0] - a[0] || 1);
+    for (let c = 0; c < 3; c++) lut[i * 3 + c] = Math.round(a[c + 1] + f * (b[c + 1] - a[c + 1]));
+  }
+  return lut;
+}
+
+function displayTrace(k, scratch, prefix) {
+  const seg = S.seg, nst = seg.nsLoaded[k], base = k * seg.maxNs;
+  const raw = seg.data.subarray(base, base + nst);
+  const gain = $('gainSel').value, flip = $('flipPol').checked, abs = S.disp.abs;
+  if (gain === 'none' && !flip && !abs) return raw;
+  const out = scratch.subarray(0, nst);
+  if (gain === 'agc') {
+    const w = Math.max(1, Math.round((parseFloat($('agcWin').value) || 5) / S.rows.dtMs));
+    const h = w >> 1;
+    prefix[0] = 0;
+    for (let i = 0; i < nst; i++) prefix[i + 1] = prefix[i] + raw[i] * raw[i];
+    const eps = (seg.gMax - seg.gMin) * 1e-7 + 1e-30;
+    for (let i = 0; i < nst; i++) {
+      const a = Math.max(0, i - h), b = Math.min(nst, i + h + 1);
+      const r = Math.sqrt((prefix[b] - prefix[a]) / (b - a));
+      out[i] = raw[i] / (r + eps);
+    }
+  } else if (gain === 'tpow') {
+    const d0 = S.rows.delayApplied ? seg.H.delrt[seg.traceIdx[k]] : 0;
+    for (let i = 0; i < nst; i++) { const t = (d0 + (i + 0.5) * S.rows.dtMs) / 1000; out[i] = raw[i] * t * t; }
+  } else out.set(raw);
+  if (flip) for (let i = 0; i < nst; i++) out[i] = -out[i];
+  if (abs) for (let i = 0; i < nst; i++) if (out[i] < 0) out[i] = -out[i];
+  return out;
+}
+
+function computeDisplay() {
+  const seg = S.seg; if (!seg) return;
+  const ampMode = $('ampSel').value;
+  S.disp.abs = ampMode === 'abs' || (ampMode === 'auto' && seg.envelope);
+  S.disp.lut = buildLUT($('cmapSel').value);
+  S.scratch = new Float32Array(seg.maxNs); S.prefix = new Float64Array(seg.maxNs + 1);
+  const pct = parseFloat($('clipSlider').value) / 100;
+  const tStep = Math.max(1, Math.floor(seg.nLoad / 300));
+  const sStep = Math.max(1, Math.floor(seg.maxNs / 800));
+  const vals = [];
+  for (let k = 0; k < seg.nLoad; k += tStep) {
+    const tr = displayTrace(k, S.scratch, S.prefix);
+    for (let i = 0; i < tr.length; i += sStep) { const v = Math.abs(tr[i]); if (Number.isFinite(v)) vals.push(v); }
+  }
+  const arr = Float32Array.from(vals).sort();
+  let clip = arr.length ? arr[Math.min(arr.length - 1, Math.floor(arr.length * pct))] : 0;
+  if (!(clip > 0)) clip = arr.length ? arr[arr.length - 1] : 0;
+  if (!(clip > 0)) clip = 1;
+  S.disp.clip = clip;
+  S.disp.gen++;
+  S.detail = null;
+  S.overview = buildImage(0, seg.nLoad, 0, S.rows.total, MAX_IMG_DIM, MAX_IMG_DIM);
+}
+
+function buildImage(u0, u1, r0, r1, maxW, maxH) {
+  const seg = S.seg;
+  u0 = clamp(Math.floor(u0), 0, seg.nLoad); u1 = clamp(Math.ceil(u1), u0 + 1, seg.nLoad);
+  r0 = clamp(Math.floor(r0), 0, S.rows.total); r1 = clamp(Math.ceil(r1), r0 + 1, S.rows.total);
+  const nt = u1 - u0, nr = r1 - r0;
+  const W = Math.max(1, Math.min(nt, Math.floor(maxW))), Hh = Math.max(1, Math.min(nr, Math.floor(maxH)));
+  const cnv = document.createElement('canvas'); cnv.width = W; cnv.height = Hh;
+  const c2 = cnv.getContext('2d');
+  const img = c2.createImageData(W, Hh), px = img.data;
+  const lut = S.disp.lut, clip = S.disp.clip, abs = S.disp.abs, inv = 1 / clip;
+  const rowsPerPix = nr / Hh, off = S.rows.offset;
+  for (let x = 0; x < W; x++) {
+    const k = Math.min(u1 - 1, u0 + Math.floor((x + 0.5) * nt / W));
+    const tr = displayTrace(k, S.scratch, S.prefix), nst = tr.length, ok = off[k];
+    for (let y = 0; y < Hh; y++) {
+      const ra = r0 + Math.floor(y * rowsPerPix);
+      const rb = Math.max(ra + 1, r0 + Math.floor((y + 1) * rowsPerPix));
+      let ia = ra - ok, ib = rb - ok;
+      const q = (y * W + x) * 4;
+      if (ib <= 0 || ia >= nst) { px[q + 3] = 0; continue; } 
+      ia = Math.max(0, ia); ib = Math.min(nst, ib);
+      let v = tr[ia];
+      if (ib - ia > 1) {                                           
+        let best = v < 0 ? -v : v;
+        for (let i = ia + 1; i < ib; i++) { const a = tr[i] < 0 ? -tr[i] : tr[i]; if (a > best) { best = a; v = tr[i]; } }
+      }
+      let t = abs ? v * inv : (v * inv + 1) * 0.5;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const li = (t * 255 + 0.5) | 0;
+      px[q] = lut[li * 3]; px[q + 1] = lut[li * 3 + 1]; px[q + 2] = lut[li * 3 + 2]; px[q + 3] = 255;
+    }
+  }
+  c2.putImageData(img, 0, 0);
+  return { canvas: cnv, u0, u1, r0, r1, W, H: Hh, full: W === nt && Hh === nr, gen: S.disp.gen };
+}
+
+function rebuildDisplay() {
+  if (!S.seg) return;
+  setStatus('Rendering…', 0.5);
+  setTimeout(() => {
+    try { computeDisplay(); drawProfile(); scheduleDetail(); setStatus(`Loaded ${S.seg.n.toLocaleString()} traces from ${S.file.name}.`); }
+    catch (e) { console.error(e); setStatus('Rendering failed.'); addMessage('bad', `Rendering failed: ${e.message}`); }
+  }, 10);
+}
+$('clipSlider').addEventListener('input', (e) => { $('clipValue').textContent = parseFloat(e.target.value).toFixed(1); });
+['clipSlider', 'gainSel', 'agcWin', 'cmapSel', 'ampSel', 'flipPol'].forEach((id) => $(id).addEventListener('change', rebuildDisplay));
+$('applyDelay').addEventListener('change', () => { if (!S.seg) return; setupRows(); rebuildDisplay(); fitView(); });
+$('velInput').addEventListener('change', drawProfile);
+
+/* =====================================================================
+ * 5. Profile view: sizing, pan/zoom, axes, readout
+ * ===================================================================== */
+function sizeCanvas(cnv, ctx) {
+  const dpr = window.devicePixelRatio || 1, r = cnv.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+  if (cnv.width !== w || cnv.height !== h) { cnv.width = w; cnv.height = h; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w: r.width, h: r.height, dpr };
+}
+function plotRect() {
+  const r = pc.getBoundingClientRect();
+  return { L: PLOT_M.l, T: PLOT_M.t, W: Math.max(10, r.width - PLOT_M.l - PLOT_M.r), H: Math.max(10, r.height - PLOT_M.t - PLOT_M.b) };
+}
+function fitView() {
+  if (!S.seg) return;
+  const p = plotRect();
+  S.view = { u0: 0, v0: 0, sx: p.W / S.seg.nLoad, sy: p.H / S.rows.total, fitted: true };
+  S.detail = null; drawProfile(); drawMotion(); scheduleDetail();
+}
+function clampView() {
+  const seg = S.seg, p = plotRect(), v = S.view;
+  const fx = p.W / seg.nLoad, fy = p.H / S.rows.total;
+  v.sx = clamp(v.sx, fx * 0.5, Math.max(fx, 80));
+  v.sy = clamp(v.sy, fy * 0.5, Math.max(fy, 80));
+  const vu = p.W / v.sx, vv = p.H / v.sy;
+  v.u0 = clamp(v.u0, -vu * 0.5, seg.nLoad - vu * 0.5);
+  v.v0 = clamp(v.v0, -vv * 0.5, S.rows.total - vv * 0.5);
+}
+
+function drawCached(ctx, im, p) {
+  if (!im) return;
+  const v = S.view;
+  const vu1 = v.u0 + p.W / v.sx, vv1 = v.v0 + p.H / v.sy;
+  const du0 = Math.max(im.u0, v.u0), du1 = Math.min(im.u1, vu1);
+  const dv0 = Math.max(im.r0, v.v0), dv1 = Math.min(im.r1, vv1);
+  if (du1 <= du0 || dv1 <= dv0) return;
+  const kx = im.W / (im.u1 - im.u0), ky = im.H / (im.r1 - im.r0);
+  const sx0 = (du0 - im.u0) * kx, sw = (du1 - du0) * kx, sy0 = (dv0 - im.r0) * ky, sh = (dv1 - dv0) * ky;
+  const dx = p.L + (du0 - v.u0) * v.sx, dw = (du1 - du0) * v.sx, dy = p.T + (dv0 - v.v0) * v.sy, dh = (dv1 - dv0) * v.sy;
+  if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+  ctx.imageSmoothingEnabled = (dw / sw) < 1 && (dh / sh) < 1;
+  ctx.drawImage(im.canvas, sx0, sy0, sw, sh, dx, dy, dw, dh);
+}
+
+function drawProfile() {
+  const { w, h } = sizeCanvas(pc, pctx);
+  pctx.clearRect(0, 0, w, h);
+  const seg = S.seg;
+  if (!seg || !S.overview) { drawRMS(); return; }
+  const p = plotRect(), v = S.view;
+  pctx.save();
+  pctx.beginPath(); pctx.rect(p.L, p.T, p.W, p.H); pctx.clip();
+  pctx.fillStyle = '#05070a'; pctx.fillRect(p.L, p.T, p.W, p.H);
+  drawCached(pctx, S.overview, p);
+  if (S.detail && S.detail.gen === S.disp.gen) drawCached(pctx, S.detail, p);
+  
+  // highlight trace hovered on the nav map or motion panel
+  if (S.highlightTrace >= 0) {
+    const k = S.highlightTrace / seg.step;
+    const x = p.L + (k - v.u0 + 0.5) * v.sx;
+    pctx.strokeStyle = 'rgba(245,158,11,0.9)'; pctx.lineWidth = 1.5;
+    pctx.beginPath(); pctx.moveTo(x, p.T); pctx.lineTo(x, p.T + p.H); pctx.stroke();
+  }
+  pctx.restore();
+
+  // axes
+  pctx.font = '11px -apple-system, "Segoe UI", Roboto, sans-serif';
+  pctx.fillStyle = '#a0aec0'; pctx.strokeStyle = '#4a5568'; pctx.lineWidth = 1;
+  pctx.strokeRect(p.L + 0.5, p.T + 0.5, p.W - 1, p.H - 1);
+  // left: two-way time
+  const dtMs = S.rows.dtMs, tTop = S.rows.tMinMs + v.v0 * dtMs, tBot = S.rows.tMinMs + (v.v0 + p.H / v.sy) * dtMs;
+  let st = niceStep(tBot - tTop, Math.max(2, p.H / 45)), dec = decimalsFor(st);
+  pctx.textAlign = 'right'; pctx.textBaseline = 'middle';
+  for (let t = Math.ceil(tTop / st) * st; t <= tBot; t += st) {
+    const y = p.T + ((t - S.rows.tMinMs) / dtMs - v.v0) * v.sy;
+    pctx.beginPath(); pctx.moveTo(p.L - 5, y); pctx.lineTo(p.L, y); pctx.stroke();
+    pctx.fillText(t.toFixed(dec), p.L - 7, y);
+  }
+  pctx.save(); pctx.translate(12, p.T + p.H / 2); pctx.rotate(-Math.PI / 2); pctx.textAlign = 'center';
+  pctx.fillText(`TWT (ms)${S.rows.delayApplied ? ' incl. delay' : ''}`, 0, 0); pctx.restore();
+  // right: depth from velocity
+  const vel = clamp(parseFloat($('velInput').value) || 1500, 100, 10000);
+  const dTop = tTop / 2000 * vel, dBot = tBot / 2000 * vel;
+  st = niceStep(dBot - dTop, Math.max(2, p.H / 45)); dec = decimalsFor(st);
+  pctx.textAlign = 'left';
+  for (let d = Math.ceil(dTop / st) * st; d <= dBot; d += st) {
+    const t = d * 2000 / vel, y = p.T + ((t - S.rows.tMinMs) / dtMs - v.v0) * v.sy;
+    pctx.beginPath(); pctx.moveTo(p.L + p.W, y); pctx.lineTo(p.L + p.W + 5, y); pctx.stroke();
+    pctx.fillText(d.toFixed(dec), p.L + p.W + 7, y);
+  }
+  pctx.save(); pctx.translate(w - 8, p.T + p.H / 2); pctx.rotate(Math.PI / 2); pctx.textAlign = 'center';
+  pctx.fillText(`Depth (m) @ ${vel} m/s`, 0, 0); pctx.restore();
+  // top: trace number (file order, 1-based)
+  const uL = v.u0, uR = v.u0 + p.W / v.sx;
+  st = Math.max(1, niceStep((uR - uL) * seg.step, Math.max(2, p.W / 90)));
+  pctx.textAlign = 'center'; pctx.textBaseline = 'alphabetic';
+  for (let lab = Math.max(1, Math.ceil((uL * seg.step + 1) / st) * st); lab <= uR * seg.step + 1; lab += st) {
+    const x = p.L + ((lab - 1) / seg.step + 0.5 - v.u0) * v.sx;
+    pctx.beginPath(); pctx.moveTo(x, p.T - 5); pctx.lineTo(x, p.T); pctx.stroke();
+    pctx.fillText(String(lab), x, p.T - 8);
+  }
+  pctx.textAlign = 'left'; pctx.fillText('Trace', 8, 16);
+  drawRMS();
+}
+
+function drawRMS() {
+  const { w, h } = sizeCanvas(rc, rctx);
+  rctx.clearRect(0, 0, w, h);
+  const seg = S.seg; if (!seg) return;
+  const p = plotRect(), v = S.view, T = 8, Hh = h - 16;
+  const med = seg.rmsMed;
+  const dbMin = -30, dbMax = 20;
+  const yOf = (db) => T + Hh * (1 - (clamp(db, dbMin, dbMax) - dbMin) / (dbMax - dbMin));
+  rctx.strokeStyle = '#2d3748'; rctx.lineWidth = 1;
+  [dbMin, 0, dbMax].forEach((db) => { const y = Math.round(yOf(db)) + 0.5; rctx.beginPath(); rctx.moveTo(p.L, y); rctx.lineTo(p.L + p.W, y); rctx.stroke(); });
+  rctx.fillStyle = '#a0aec0'; rctx.font = '10px -apple-system, "Segoe UI", sans-serif'; rctx.textAlign = 'right'; rctx.textBaseline = 'middle';
+  rctx.fillText('+20 dB', p.L - 6, yOf(dbMax)); rctx.fillText('0', p.L - 6, yOf(0)); rctx.fillText('−30', p.L - 6, yOf(dbMin));
+  rctx.textAlign = 'left'; rctx.fillText('RMS', p.L + p.W + 4, yOf(0));
+  rctx.save(); rctx.beginPath(); rctx.rect(p.L, 0, p.W, h); rctx.clip();
+  rctx.strokeStyle = '#60a5fa'; rctx.beginPath();
+  let started = false;
+  for (let px = 0; px < p.W; px++) {
+    const ka = Math.floor(v.u0 + px / v.sx), kb = Math.max(ka + 1, Math.floor(v.u0 + (px + 1) / v.sx));
+    if (kb <= 0 || ka >= seg.nLoad) { started = false; continue; }
+    const a = Math.max(0, ka), b = Math.min(seg.nLoad, kb), stp = Math.max(1, Math.floor((b - a) / 64));
+    let mx = 0, deadHere = false;
+    for (let k = a; k < b; k += stp) { if (seg.rms[k] > mx) mx = seg.rms[k]; if (seg.maxAbs[k] === 0) deadHere = true; }
+    if (deadHere) { rctx.save(); rctx.fillStyle = 'rgba(239,68,68,0.8)'; rctx.fillRect(p.L + px, T, 1, Hh); rctx.restore(); }
+    const y = yOf(mx > 0 ? 20 * Math.log10(mx / med) : dbMin);
+    if (!started) { rctx.moveTo(p.L + px, y); started = true; } else rctx.lineTo(p.L + px, y);
+  }
+  rctx.stroke(); rctx.restore();
+}
+
+let motionPending = false;
+function requestMotionDraw() { if (motionPending) return; motionPending = true; requestAnimationFrame(() => { motionPending = false; drawMotion(); }); }
+
+function drawMotion() {
+  const { w, h } = sizeCanvas(mc, mctx);
+  mctx.clearRect(0, 0, w, h);
+  const seg = S.seg;
+  if (!seg) { 
+    $('motionEmpty').hidden = false; 
+    $('motionEmpty').textContent = 'No file loaded'; 
+    $('motionReadout').textContent = ''; 
+    return; 
+  }
+  
+  const opts = getOpts();
+  if (!opts.rollByte && !opts.pitchByte && !opts.heaveByte) {
+     $('motionEmpty').hidden = false; 
+     $('motionEmpty').textContent = 'Enter byte offsets and click Apply to view motion data';
+     $('motionReadout').textContent = '';
+     return;
+  }
+  
+  const H = seg.H;
+  let minR = Infinity, maxR = -Infinity;
+  let minP = Infinity, maxP = -Infinity;
+  let minH = Infinity, maxH = -Infinity;
+  let minV = Infinity, maxV = -Infinity;
+  let hasValid = false;
+  
+  const v = S.view;
+  const p = plotRect(); 
+  const T = 10, B = 20, Hh = Math.max(10, h - T - B);
+  
+  const ka = Math.max(0, Math.floor(v.u0));
+  const kb = Math.min(seg.nLoad, Math.ceil(v.u0 + p.W / v.sx));
+  
+  const valid = (val) => Number.isFinite(val) && !isNaN(val);
+  
+  for(let k = ka; k <= kb; k++) {
+    if (k >= seg.nLoad) break;
+    const t = seg.traceIdx[k];
+    const r = H.roll[t], pt = H.pitch[t], hv = H.heave[t];
+    if (valid(r)) { minR = Math.min(minR, r); maxR = Math.max(maxR, r); minV = Math.min(minV, r); maxV = Math.max(maxV, r); hasValid = true; }
+    if (valid(pt)) { minP = Math.min(minP, pt); maxP = Math.max(maxP, pt); minV = Math.min(minV, pt); maxV = Math.max(maxV, pt); hasValid = true; }
+    if (valid(hv)) { minH = Math.min(minH, hv); maxH = Math.max(maxH, hv); minV = Math.min(minV, hv); maxV = Math.max(maxV, hv); hasValid = true; }
+  }
+  
+  if (!hasValid) {
+    $('motionEmpty').hidden = false; 
+    $('motionEmpty').textContent = 'No valid motion data found at these bytes in the current view';
+    $('motionReadout').textContent = '';
+    return; 
+  }
+  $('motionEmpty').hidden = true;
+  
+  // Generate the visible summary numbers
+  let sumText = [];
+  if (opts.rollByte && minR <= maxR) sumText.push(`Roll     [${minR.toFixed(2)}, ${maxR.toFixed(2)}]`);
+  if (opts.pitchByte && minP <= maxP) sumText.push(`Pitch    [${minP.toFixed(2)}, ${maxP.toFixed(2)}]`);
+  if (opts.heaveByte && minH <= maxH) sumText.push(`Heave    [${minH.toFixed(2)}, ${maxH.toFixed(2)}]`);
+  S.motionSummaryText = sumText.length ? "Visible Range\n" + sumText.join('\n') : "";
+  
+  if (!S.motionHover) {
+    $('motionReadout').textContent = S.motionSummaryText;
+  }
+  
+  if (maxV === minV) { maxV += 1; minV -= 1; }
+  const span = maxV - minV;
+  const yOf = (val) => T + Hh - ((val - minV) / span) * Hh;
+  
+  // draw axes
+  mctx.strokeStyle = '#2d3748'; mctx.lineWidth = 1;
+  const stY = niceStep(span, Math.max(2, Hh / 30));
+  mctx.fillStyle = '#a0aec0'; mctx.font = '10px -apple-system, "Segoe UI", sans-serif';
+  mctx.textAlign = 'right'; mctx.textBaseline = 'middle';
+  
+  for(let yv = Math.ceil(minV/stY)*stY; yv <= maxV; yv += stY) {
+    const y = Math.round(yOf(yv)) + 0.5;
+    mctx.beginPath(); mctx.moveTo(p.L, y); mctx.lineTo(p.L + p.W, y); mctx.stroke();
+    mctx.fillText(yv.toFixed(decimalsFor(stY)), p.L - 6, y);
+  }
+  
+  mctx.save(); mctx.beginPath(); mctx.rect(p.L, 0, p.W, h); mctx.clip();
+  
+  // draw lines
+  const drawLine = (arr, col) => {
+    mctx.strokeStyle = col; mctx.lineWidth = 1.5; mctx.lineJoin = 'round'; mctx.beginPath();
+    let pen = false;
+    for(let px = 0; px <= p.W; px++) {
+       const k = v.u0 + px / v.sx;
+       if (k < 0 || k >= seg.nLoad) { pen = false; continue; }
+       const t = seg.traceIdx[Math.floor(k)]; 
+       const val = arr[t];
+       if (valid(val)) {
+         const sy = yOf(val);
+         if (!pen) { mctx.moveTo(p.L + px, sy); pen = true; }
+         else { mctx.lineTo(p.L + px, sy); }
+       } else {
+         pen = false;
+       }
+    }
+    mctx.stroke();
+  };
+  
+  if (opts.rollByte) drawLine(H.roll, '#60a5fa');
+  if (opts.pitchByte) drawLine(H.pitch, '#f87171');
+  if (opts.heaveByte) drawLine(H.heave, '#34d399');
+  
+  // highlight trace hovered on the nav map
+  if (S.highlightTrace >= 0) {
+    const k = S.highlightTrace / seg.step;
+    if (k >= v.u0 && k <= v.u0 + p.W / v.sx) {
+      const x = p.L + (k - v.u0 + 0.5) * v.sx;
+      mctx.strokeStyle = 'rgba(245,158,11,0.9)'; mctx.lineWidth = 1.5;
+      mctx.beginPath(); mctx.moveTo(x, T); mctx.lineTo(x, T + Hh); mctx.stroke();
+    }
+  }
+
+  // cursor from profile
+  if (S.cursorTrace >= 0) {
+    const k = S.cursorTrace / seg.step;
+    if (k >= v.u0 && k <= v.u0 + p.W / v.sx) {
+      const x = p.L + (k - v.u0 + 0.5) * v.sx;
+      mctx.strokeStyle = 'rgba(228,230,235,0.7)'; mctx.lineWidth = 1;
+      mctx.beginPath(); mctx.moveTo(x, T); mctx.lineTo(x, T + Hh); mctx.stroke();
+    }
+  }
+  
+  mctx.restore();
+
+  // Box
+  mctx.strokeStyle = '#4a5568';
+  mctx.strokeRect(p.L + 0.5, T + 0.5, p.W - 1, Hh - 1);
+}
+
+// ---------- detail re-render for the zoomed window ----------
+function scheduleDetail() {
+  clearTimeout(S.detailTimer);
+  S.detailTimer = setTimeout(() => {
+    const seg = S.seg; if (!seg || !S.overview || S.overview.full) return;
+    const p = plotRect(), v = S.view, dpr = window.devicePixelRatio || 1;
+    const u0 = Math.max(0, Math.floor(v.u0)), u1 = Math.min(seg.nLoad, Math.ceil(v.u0 + p.W / v.sx));
+    const r0 = Math.max(0, Math.floor(v.v0)), r1 = Math.min(S.rows.total, Math.ceil(v.v0 + p.H / v.sy));
+    if (u1 <= u0 || r1 <= r0) return;
+    const ov = S.overview;
+    const ovPixPerTrace = ov.W / (ov.u1 - ov.u0), ovPixPerRow = ov.H / (ov.r1 - ov.r0);
+    const needX = ovPixPerTrace < 1 && ovPixPerTrace < v.sx * dpr * 0.9;   // overview coarser than screen in X
+    const needY = ovPixPerRow < 1 && ovPixPerRow < v.sy * dpr * 0.9;       // ... or in Y
+    if (!needX && !needY) { if (S.detail) { S.detail = null; drawProfile(); } return; }
+    try {
+      S.detail = buildImage(u0, u1, r0, r1, Math.min(MAX_IMG_DIM, p.W * dpr), Math.min(MAX_IMG_DIM, p.H * dpr));
+      drawProfile();
+    } catch (e) { console.warn('Detail render skipped:', e); }
+  }, 160);
+}
+
+// ---------- interaction ----------
+let drag = null;
+
+const startDrag = (e, canvas) => {
+  if (!S.seg || e.button !== 0) return;
+  canvas.setPointerCapture(e.pointerId);
+  drag = { x: e.clientX, y: e.clientY, u0: S.view.u0, v0: S.view.v0 };
+  canvas.classList.add('dragging');
+};
+const endDrag = (e, canvas) => { 
+  if (drag) { drag = null; canvas.classList.remove('dragging'); scheduleDetail(); } 
+};
+
+pc.addEventListener('pointerdown', (e) => startDrag(e, pc));
+pc.addEventListener('pointermove', (e) => {
+  if (!S.seg) return;
+  if (drag) {
+    S.view.u0 = drag.u0 - (e.clientX - drag.x) / S.view.sx;
+    S.view.v0 = drag.v0 - (e.clientY - drag.y) / S.view.sy;
+    S.view.fitted = false; clampView(); requestDraw();
+  }
+  updateReadout(e);
+});
+
+pc.addEventListener('pointerup', (e) => endDrag(e, pc));
+pc.addEventListener('pointercancel', (e) => endDrag(e, pc));
+pc.addEventListener('pointerleave', () => { 
+  $('readout').textContent = ''; 
+  S.cursorTrace = -1; 
+  requestNavDraw(); 
+  requestMotionDraw(); 
+});
+pc.addEventListener('dblclick', fitView);
+pc.addEventListener('wheel', (e) => {
+  if (!S.seg) return;
+  e.preventDefault();
+  const r = pc.getBoundingClientRect(), p = plotRect(), v = S.view;
+  const mx = e.clientX - r.left - p.L, my = e.clientY - r.top - p.T;
+  const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+  const f = clamp(Math.exp(-dy * 0.0015), 0.5, 2);
+  const uM = v.u0 + mx / v.sx, vM = v.v0 + my / v.sy;
+  if (!e.ctrlKey && !e.altKey) v.sx *= f;
+  if (!e.shiftKey) v.sy *= f;
+  clampView();
+  v.u0 = uM - mx / v.sx; v.v0 = vM - my / v.sy;
+  v.fitted = false; clampView(); requestDraw(); scheduleDetail(); updateReadout(e);
+}, { passive: false });
+$('fitBtn').addEventListener('click', fitView);
+
+// Motion Canvas Hover Listeners
+mc.addEventListener('pointermove', (e) => {
+  if (!S.seg) return;
+  S.motionHover = true;
+  const r = mc.getBoundingClientRect(), p = plotRect(), v = S.view;
+  const mx = e.clientX - r.left - p.L;
+  
+  if (mx < 0 || mx > p.W) {
+    $('motionReadout').textContent = S.motionSummaryText || '';
+    if (S.cursorTrace !== -1) { S.cursorTrace = -1; requestDraw(); requestNavDraw(); requestMotionDraw(); }
+    return;
+  }
+  
+  const u = v.u0 + mx / v.sx;
+  const k = Math.floor(u);
+  if (k < 0 || k >= S.seg.nLoad) return;
+  
+  const t = S.seg.traceIdx[k];
+  const opts = getOpts();
+  const lines = [`Trace   ${(t + 1).toLocaleString()}`];
+  if (opts.rollByte && isNum(S.seg.H.roll[t])) lines.push(`Roll    ${S.seg.H.roll[t].toFixed(3)}`);
+  if (opts.pitchByte && isNum(S.seg.H.pitch[t])) lines.push(`Pitch   ${S.seg.H.pitch[t].toFixed(3)}`);
+  if (opts.heaveByte && isNum(S.seg.H.heave[t])) lines.push(`Heave   ${S.seg.H.heave[t].toFixed(3)}`);
+  
+  $('motionReadout').textContent = lines.join('\n');
+  if (S.cursorTrace !== t) { S.cursorTrace = t; requestDraw(); requestNavDraw(); requestMotionDraw(); }
+});
+
+mc.addEventListener('pointerleave', () => {
+  S.motionHover = false;
+  $('motionReadout').textContent = S.motionSummaryText || '';
+  if (S.cursorTrace !== -1) { S.cursorTrace = -1; requestDraw(); requestNavDraw(); requestMotionDraw(); }
+});
+
+let drawPending = false;
+function requestDraw() { if (drawPending) return; drawPending = true; requestAnimationFrame(() => { drawPending = false; drawProfile(); drawMotion(); }); }
+
+function updateReadout(e) {
+  const seg = S.seg; if (!seg) return;
+  const r = pc.getBoundingClientRect(), p = plotRect(), v = S.view;
+  const mx = e.clientX - r.left - p.L, my = e.clientY - r.top - p.T;
+  const u = v.u0 + mx / v.sx, row = v.v0 + my / v.sy;
+  const k = Math.floor(u), rr = Math.floor(row);
+  if (mx < 0 || my < 0 || mx > p.W || my > p.H || k < 0 || k >= seg.nLoad || rr < 0 || rr >= S.rows.total) {
+    $('readout').textContent = ''; if (S.cursorTrace !== -1) { S.cursorTrace = -1; requestNavDraw(); requestMotionDraw(); } return;
+  }
+  const t = seg.traceIdx[k], i = rr - S.rows.offset[k];
+  const tms = S.rows.tMinMs + rr * S.rows.dtMs;
+  const vel = clamp(parseFloat($('velInput').value) || 1500, 100, 10000);
+  const amp = i >= 0 && i < seg.nsLoaded[k] ? seg.data[k * seg.maxNs + i] : NaN;
+  const nav = seg.nav, d = nav.geographic ? 6 : 2;
+  const lines = [
+    `Trace   ${(t + 1).toLocaleString()}`,
+    `FFID    ${seg.H.fldr[t]}`,
+    `TWT     ${tms.toFixed(3)} ms`,
+    `Depth   ${(tms / 2000 * vel).toFixed(2)} m`,
+    `Amp     ${isNum(amp) ? amp.toPrecision(5) : 'no data'}`,
+    `${nav.geographic ? 'Lon' : 'X'}     ${isNum(nav.x[t]) ? nav.x[t].toFixed(d) : 'no fix'}`,
+    `${nav.geographic ? 'Lat' : 'Y'}     ${isNum(nav.y[t]) ? nav.y[t].toFixed(d) : 'no fix'}`
+  ];
+  
+  const opts = getOpts();
+  if (opts.rollByte && isNum(seg.H.roll[t])) lines.push(`Roll    ${seg.H.roll[t].toFixed(3)}`);
+  if (opts.pitchByte && isNum(seg.H.pitch[t])) lines.push(`Pitch   ${seg.H.pitch[t].toFixed(3)}`);
+  if (opts.heaveByte && isNum(seg.H.heave[t])) lines.push(`Heave   ${seg.H.heave[t].toFixed(3)}`);
+  
+  $('readout').textContent = lines.join('\n');
+  if (S.cursorTrace !== t) { S.cursorTrace = t; requestNavDraw(); requestMotionDraw(); }
+}
+
+$('pngBtn').addEventListener('click', () => {
+  if (!S.seg) return;
+  const out = document.createElement('canvas');
+  out.width = pc.width; out.height = pc.height + rc.height + mc.height;
+  const c = out.getContext('2d');
+  c.fillStyle = '#0a0d12'; c.fillRect(0, 0, out.width, out.height);
+  c.drawImage(pc, 0, 0); c.drawImage(rc, 0, pc.height); c.drawImage(mc, 0, pc.height + rc.height);
+  const base = (S.file.name || 'segy').replace(/\.[^.]+$/, '');
+  out.toBlob((b) => b ? download(b, `${base}_profile.png`) : addMessage('bad', 'PNG export failed.'), 'image/png');
+});
+
+/* =====================================================================
+ * 6. Navigation map
+ * ===================================================================== */
+function navPoints() {
+  const seg = S.seg, nav = seg.nav;
+  if (S.nav.pts && S.nav.pts.seg === seg) return S.nav.pts;
+  let lat0 = 0, c = 0;
+  if (nav.geographic) { for (let i = 0; i < seg.n; i += Math.max(1, seg.n >> 10)) if (isNum(nav.y[i])) { lat0 += nav.y[i]; c++; } lat0 = c ? lat0 / c : 0; }
+  const kx = nav.geographic ? Math.cos(lat0 * Math.PI / 180) : 1;
+  const stride = Math.max(1, Math.ceil(seg.n / 40000));
+  const idx = [];
+  for (let i = 0; i < seg.n; i += stride) idx.push(i);
+  if (idx[idx.length - 1] !== seg.n - 1) idx.push(seg.n - 1);
+  const px = new Float64Array(idx.length), py = new Float64Array(idx.length);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  idx.forEach((i, j) => {
+    px[j] = nav.x[i] * kx; py[j] = nav.y[i];
+    if (isNum(px[j])) { minX = Math.min(minX, px[j]); maxX = Math.max(maxX, px[j]); minY = Math.min(minY, py[j]); maxY = Math.max(maxY, py[j]); }
+  });
+  S.nav.pts = { seg, idx: Int32Array.from(idx), px, py, kx, minX, maxX, minY, maxY, valid: isNum(minX) };
+  return S.nav.pts;
+}
+function fitNav() {
+  if (!S.seg) return;
+  const P = navPoints(); if (!P.valid) { drawNav(); return; }
+  const r = nc.getBoundingClientRect();
+  const w = Math.max(10, r.width - 80), h = Math.max(10, r.height - 50);
+  const spanX = Math.max(P.maxX - P.minX, 1e-9), spanY = Math.max(P.maxY - P.minY, 1e-9);
+  S.nav.s = Math.min(w / spanX, h / spanY);
+  if (!isNum(S.nav.s) || S.nav.s <= 0) S.nav.s = 1;
+  S.nav.cx = (P.minX + P.maxX) / 2; S.nav.cy = (P.minY + P.maxY) / 2; S.nav.fitted = true;
+  drawNav();
+}
+function navToScreen(x, y, w, h) { return [w / 2 + 20 + (x - S.nav.cx) * S.nav.s, h / 2 - 15 - (y - S.nav.cy) * S.nav.s]; }
+
+function drawNav() {
+  const { w, h } = sizeCanvas(nc, nctx);
+  nctx.clearRect(0, 0, w, h);
+  const seg = S.seg;
+  if (!seg) { $('navEmpty').hidden = false; $('navInfo').textContent = ''; return; }
+  const P = navPoints(), nav = seg.nav;
+  if (!P.valid) { $('navEmpty').hidden = false; $('navEmpty').textContent = 'No valid coordinates in trace headers'; return; }
+  $('navEmpty').hidden = true;
+  const L = 70, B = 34;
+  // grid + labels
+  const x0 = S.nav.cx - (w / 2 + 20 - L) / S.nav.s, x1 = S.nav.cx + (w / 2 - 20) / S.nav.s;
+  const y0 = S.nav.cy - (h / 2 + 15 - B) / S.nav.s, y1 = S.nav.cy + (h / 2 - 15) / S.nav.s;
+  nctx.font = '10px -apple-system, "Segoe UI", sans-serif'; nctx.lineWidth = 1;
+  const stX = niceStep((x1 - x0) / P.kx, Math.max(2, (w - L) / 110)), stY = niceStep(y1 - y0, Math.max(2, (h - B) / 60));
+  nctx.strokeStyle = '#1f2937'; nctx.fillStyle = '#a0aec0';
+  nctx.textAlign = 'center'; nctx.textBaseline = 'top';
+  for (let gx = Math.ceil((x0 / P.kx) / stX) * stX; gx <= x1 / P.kx; gx += stX) {
+    const [sx] = navToScreen(gx * P.kx, 0, w, h);
+    if (sx < L) continue;
+    nctx.beginPath(); nctx.moveTo(sx, 0); nctx.lineTo(sx, h - B); nctx.stroke();
+    nctx.fillText(gx.toFixed(decimalsFor(stX)), sx, h - B + 6);
+  }
+  nctx.textAlign = 'right'; nctx.textBaseline = 'middle';
+  for (let gy = Math.ceil(y0 / stY) * stY; gy <= y1; gy += stY) {
+    const [, sy] = navToScreen(0, gy, w, h);
+    if (sy > h - B) continue;
+    nctx.beginPath(); nctx.moveTo(L, sy); nctx.lineTo(w, sy); nctx.stroke();
+    nctx.fillText(gy.toFixed(decimalsFor(stY)), L - 6, sy);
+  }
+  nctx.textAlign = 'center'; nctx.textBaseline = 'bottom';
+  nctx.fillText(nav.geographic ? 'Longitude (°)' : `Easting / X (${nav.feet ? 'ft' : 'm'})`, L + (w - L) / 2, h - 2);
+  nctx.save(); nctx.translate(12, (h - B) / 2); nctx.rotate(-Math.PI / 2); nctx.textBaseline = 'middle';
+  nctx.fillText(nav.geographic ? 'Latitude (°)' : `Northing / Y (${nav.feet ? 'ft' : 'm'})`, 0, 0); nctx.restore();
+
+  nctx.save(); nctx.beginPath(); nctx.rect(L, 0, w - L, h - B); nctx.clip();
+  // track (break at dropouts)
+  nctx.strokeStyle = '#3b82f6'; nctx.lineWidth = 2; nctx.lineJoin = 'round'; nctx.beginPath();
+  let pen = false;
+  for (let j = 0; j < P.px.length; j++) {
+    if (!isNum(P.px[j])) { pen = false; continue; }
+    const [sx, sy] = navToScreen(P.px[j], P.py[j], w, h);
+    if (!pen) { nctx.moveTo(sx, sy); pen = true; } else nctx.lineTo(sx, sy);
+  }
+  nctx.stroke();
+  // jumps
+  nctx.strokeStyle = '#f59e0b'; nctx.lineWidth = 1.5;
+  nav.jumps.slice(0, 500).forEach((i) => {
+    if (!isNum(nav.x[i])) return;
+    const [sx, sy] = navToScreen(nav.x[i] * P.kx, nav.y[i], w, h);
+    nctx.beginPath(); nctx.arc(sx, sy, 6, 0, Math.PI * 2); nctx.stroke();
+  });
+  // start / end
+  let first = -1, last = -1;
+  for (let i = 0; i < seg.n; i++) if (isNum(nav.x[i])) { first = i; break; }
+  for (let i = seg.n - 1; i >= 0; i--) if (isNum(nav.x[i])) { last = i; break; }
+  if (first >= 0) { const [sx, sy] = navToScreen(nav.x[first] * P.kx, nav.y[first], w, h); nctx.fillStyle = '#10b981'; nctx.beginPath(); nctx.arc(sx, sy, 5, 0, Math.PI * 2); nctx.fill(); }
+  if (last >= 0) { const [sx, sy] = navToScreen(nav.x[last] * P.kx, nav.y[last], w, h); nctx.fillStyle = '#ef4444'; nctx.fillRect(sx - 5, sy - 5, 10, 10); }
+  // cursor from profile / hover on map
+  const mark = (t, col) => {
+    if (t < 0 || t >= seg.n || !isNum(nav.x[t])) return;
+    const [sx, sy] = navToScreen(nav.x[t] * P.kx, nav.y[t], w, h);
+    nctx.strokeStyle = col; nctx.lineWidth = 2; nctx.beginPath(); nctx.arc(sx, sy, 7, 0, Math.PI * 2); nctx.stroke();
+  };
+  mark(S.cursorTrace, '#e4e6eb');
+  if (S.nav.hover >= 0) {
+    mark(S.nav.hover, '#f59e0b');
+    const t = S.nav.hover;
+    const [sx, sy] = navToScreen(nav.x[t] * P.kx, nav.y[t], w, h);
+    const label = `Trace ${t + 1} · FFID ${seg.H.fldr[t]}`;
+    nctx.font = '11px -apple-system, "Segoe UI", sans-serif';
+    const tw = nctx.measureText(label).width + 12;
+    const bx = clamp(sx + 10, L, w - tw - 4), by = clamp(sy - 26, 4, h - B - 22);
+    nctx.fillStyle = 'rgba(15,20,41,0.9)'; nctx.fillRect(bx, by, tw, 20);
+    nctx.fillStyle = '#e4e6eb'; nctx.textAlign = 'left'; nctx.textBaseline = 'middle'; nctx.fillText(label, bx + 6, by + 10);
+  }
+  nctx.restore();
+  $('navInfo').textContent = `${nav.src} X/Y · ${nav.geographic ? 'geographic' : 'projected'}`;
+}
+let navPending = false;
+function requestNavDraw() { if (navPending) return; navPending = true; requestAnimationFrame(() => { navPending = false; drawNav(); }); }
+
+function nearestNav(e) {
+  const seg = S.seg; if (!seg) return -1;
+  const P = navPoints(); if (!P.valid) return -1;
+  const r = nc.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  let best = -1, bd = 144; // within 12 px
+  for (let j = 0; j < P.px.length; j++) {
+    if (!isNum(P.px[j])) continue;
+    const [sx, sy] = navToScreen(P.px[j], P.py[j], r.width, r.height);
+    const d = (sx - mx) ** 2 + (sy - my) ** 2;
+    if (d < bd) { bd = d; best = P.idx[j]; }
+  }
+  return best;
+}
+let ndrag = null;
+nc.addEventListener('pointerdown', (e) => { if (!S.seg || e.button !== 0) return; nc.setPointerCapture(e.pointerId); ndrag = { x: e.clientX, y: e.clientY, cx: S.nav.cx, cy: S.nav.cy, moved: false }; });
+nc.addEventListener('pointermove', (e) => {
+  if (!S.seg) return;
+  if (ndrag) {
+    const dx = e.clientX - ndrag.x, dy = e.clientY - ndrag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) ndrag.moved = true;
+    S.nav.cx = ndrag.cx - dx / S.nav.s; S.nav.cy = ndrag.cy + dy / S.nav.s; S.nav.fitted = false;
+    requestNavDraw(); return;
+  }
+  const t = nearestNav(e);
+  if (t !== S.nav.hover) { S.nav.hover = t; S.highlightTrace = t; requestNavDraw(); requestDraw(); }
+});
+nc.addEventListener('pointerup', (e) => {
+  if (!ndrag) return;
+  const moved = ndrag.moved; ndrag = null;
+  if (moved || !S.seg) return;
+  const t = nearestNav(e);
+  if (t >= 0) {                                  // centre profile on this trace
+    const p = plotRect(), k = t / S.seg.step;
+    S.view.u0 = k - (p.W / S.view.sx) / 2; S.view.fitted = false; clampView(); drawProfile(); drawMotion(); scheduleDetail();
+    S.inspect = t + 1; $('trInput').value = t + 1; inspectTrace(t + 1);
+  }
+});
+nc.addEventListener('pointerleave', () => { S.nav.hover = -1; S.highlightTrace = -1; requestNavDraw(); requestDraw(); });
+nc.addEventListener('wheel', (e) => {
+  if (!S.seg) return;
+  e.preventDefault();
+  const r = nc.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const wx = S.nav.cx + (mx - r.width / 2 - 20) / S.nav.s, wy = S.nav.cy - (my - r.height / 2 + 15) / S.nav.s;
+  const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  S.nav.s *= clamp(Math.exp(-dy * 0.0015), 0.5, 2);
+  S.nav.cx = wx - (mx - r.width / 2 - 20) / S.nav.s; S.nav.cy = wy + (my - r.height / 2 + 15) / S.nav.s;
+  S.nav.fitted = false; requestNavDraw();
+}, { passive: false });
+$('navFitBtn').addEventListener('click', fitNav);
+
+$('navCsvBtn').addEventListener('click', () => {
+  const seg = S.seg; if (!seg) return;
+  const nav = seg.nav, H = seg.H;
+  const rows = [`trace,ffid,cdp,${nav.geographic ? 'lon,lat' : 'x,y'},delay_ms,time_utc,along_track_m`];
+  for (let i = 0; i < seg.n; i++) {
+    const ts = isNum(H.tsec[i]) ? new Date(H.tsec[i] * 1000).toISOString() : '';
+    const d = nav.geographic ? 8 : 3;
+    rows.push([i + 1, H.fldr[i], H.cdp[i], isNum(nav.x[i]) ? nav.x[i].toFixed(d) : '', isNum(nav.y[i]) ? nav.y[i].toFixed(d) : '',
+               H.delrt[i], ts, nav.cum[i].toFixed(2)].join(','));
+  }
+  const base = (S.file.name || 'segy').replace(/\.[^.]+$/, '');
+  download(new Blob([rows.join('\n')], { type: 'text/csv' }), `${base}_nav.csv`);
+});
+
+/* =====================================================================
+ * 7. Header tables and QC summary
+ * ===================================================================== */
+function fillTable(tbody, rows) {
+  tbody.textContent = '';
+  rows.forEach(([k, v, cls]) => {
+    const tr = document.createElement('tr'); if (cls) tr.className = cls;
+    const a = document.createElement('td'); a.textContent = k;
+    const b = document.createElement('td'); b.textContent = v;
+    tr.append(a, b); tbody.appendChild(tr);
+  });
+}
+function fillHeaders() {
+  const seg = S.seg, L = seg.L, b = L.bin;
+  $('textHeader').textContent = L.textHeader.text || '(empty)';
+  $('textEnc').textContent = `(${L.textHeader.encoding})`;
+  fillTable($('binTable').tBodies[0], [
+    ['Job ID (3201–3204)', b.jobId], ['Line number (3205–3208)', b.lineNo], ['Reel number (3209–3212)', b.reelNo],
+    ['Traces per ensemble (3213–3214)', b.ntrPerEns], ['Sample interval µs (3217–3218)', b.dt],
+    ['Samples per trace (3221–3222)', b.ns], ['Format code (3225–3226)', b.fmt],
+    ['Sorting code (3229–3230)', b.sortCode], ['Measurement system (3255–3256)', `${b.measSys} ${b.measSys === 1 ? '(metres)' : b.measSys === 2 ? '(feet)' : ''}`],
+    ['Byte-order constant (3297–3300)', b.intConst === 16909060 ? 'present (0x01020304)' : b.intConst],
+    ['Revision (3501–3502)', `${b.revMajor}.${b.revMinor}`], ['Fixed length flag (3503–3504)', b.fixedLen],
+    ['Extended text headers (3505–3506)', b.nExt]
+  ]);
+}
+function fillQC() {
+  const seg = S.seg, L = seg.L, nav = seg.nav;
+  let dMin = Infinity, dMax = -Infinity;
+  for (let i = 0; i < seg.n; i++) { dMin = Math.min(dMin, seg.H.delrt[i]); dMax = Math.max(dMax, seg.H.delrt[i]); }
+  let nsMin = Infinity; for (let i = 0; i < seg.n; i++) nsMin = Math.min(nsMin, seg.nsArr[i]);
+  const rec = seg.maxNs * L.dtUs / 1000;
+  const freq = 1e6 / L.dtUs;
+  const rows = [
+    ['File size', fmtBytes(seg.fileSize)],
+    ['Revision / text encoding', `${L.bin.revMajor}.${L.bin.revMinor} / ${L.textHeader.encoding}`],
+    ['Byte order', `${L.le ? 'little-endian' : 'big-endian'}${L.endianAuto ? ' (auto)' : ' (override)'}`, L.le ? 'warn' : ''],
+    ['Sample format', `${L.fmt} – ${FORMATS[L.fmt].name}`],
+    ['Extended text headers', L.nExt],
+    ['Trace layout', L.mode === 'fixed' ? 'fixed length' : 'variable length'],
+    ['Traces', seg.n.toLocaleString()],
+    ['Samples per trace', nsMin === seg.maxNs ? seg.maxNs.toLocaleString() : `${nsMin}–${seg.maxNs}`],
+    ['Sample interval', `${L.dtUs} µs (${L.dtSource}) · fs ${fmtNum(freq / 1000, 2)} kHz`, L.dtSource === 'assumed' ? 'bad' : ''],
+    ['Record length', `${fmtNum(rec, 3)} ms ≈ ${fmtNum(rec / 2000 * 1500, 2)} m @1500 m/s`],
+    ['Delay (delrt)', dMin === dMax ? `${dMin} ms` : `${dMin} to ${dMax} ms (varies)`, dMin !== dMax ? 'warn' : ''],
+    ['Data type', seg.envelope ? 'envelope / positive only' : 'bipolar (full waveform)'],
+    ['Amplitude range', `${seg.gMin.toPrecision(4)} to ${seg.gMax.toPrecision(4)}`],
+    ['Dead traces (loaded)', seg.dead.toLocaleString(), seg.dead ? 'warn' : 'ok'],
+    ['NaN / Inf samples', seg.nonFinite.toLocaleString(), seg.nonFinite ? 'bad' : 'ok'],
+    ['Coordinate source / units', `${nav.src} X/Y · ${nav.units.join(', ') || '–'}${nav.geographic ? ' (geographic)' : nav.feet ? ' (feet)' : ''}`],
+    ['Traces without position', nav.zero.toLocaleString(), nav.zero ? 'warn' : 'ok'],
+    ['Line length', `${fmtNum(nav.total / 1000, 3)} km`],
+    ['Median shot spacing', `${fmtNum(nav.medSpacing, 3)} m`],
+    ['Position jumps (>10× median)', nav.jumps.length.toLocaleString(), nav.jumps.length ? 'warn' : 'ok'],
+    ['Duplicate consecutive positions', nav.dup.toLocaleString(), nav.dup > seg.n * 0.2 ? 'warn' : ''],
+    ['Recording duration', isNum(nav.duration) ? `${fmtNum(nav.duration / 60, 1)} min` : 'no time stamps'],
+    ['Mean speed', isNum(nav.speedKn) ? `${fmtNum(nav.speedKn, 2)} kn` : '–', isNum(nav.speedKn) && (nav.speedKn > 8 || nav.speedKn < 1) ? 'warn' : ''],
+    ['Time gaps / reversals', `${nav.timeGaps} / ${nav.timeBack}`, nav.timeBack ? 'bad' : nav.timeGaps ? 'warn' : 'ok'],
+    ['FFID reversals', nav.ffidBack, nav.ffidBack ? 'warn' : 'ok']
+  ];
+  if (seg.step > 1) rows.push(['Display decimation', `1 of every ${seg.step} traces`, 'warn']);
+  fillTable($('qcTable').tBodies[0], rows);
+}
+
+const TRACE_FIELDS = [
+  ['tracl', 0, 'i4', 'Trace seq. in line'], ['tracr', 4, 'i4', 'Trace seq. in file'], ['fldr', 8, 'i4', 'Field record (FFID)'],
+  ['tracf', 12, 'i4', 'Trace in field record'], ['ep', 16, 'i4', 'Energy source point'], ['cdp', 20, 'i4', 'CDP ensemble'],
+  ['cdpt', 24, 'i4', 'Trace in ensemble'], ['trid', 28, 'i2', 'Trace ID code'], ['offset', 36, 'i4', 'Source–receiver offset'],
+  ['gelev', 40, 'i4', 'Receiver elevation'], ['selev', 44, 'i4', 'Source elevation'], ['sdepth', 48, 'i4', 'Source depth'],
+  ['swdep', 60, 'i4', 'Water depth at source'], ['gwdep', 64, 'i4', 'Water depth at group'], ['scalel', 68, 'i2', 'Elevation scalar'],
+  ['scalco', 70, 'i2', 'Coordinate scalar'], ['sx', 72, 'i4', 'Source X'], ['sy', 76, 'i4', 'Source Y'], ['gx', 80, 'i4', 'Group X'],
+  ['gy', 84, 'i4', 'Group Y'], ['counit', 88, 'i2', 'Coordinate units'], ['wevel', 90, 'i2', 'Weathering velocity'],
+  ['sstat', 98, 'i2', 'Source static'], ['gstat', 100, 'i2', 'Group static'], ['laga', 104, 'i2', 'Lag time A'],
+  ['lagb', 106, 'i2', 'Lag time B'], ['delrt', 108, 'i2', 'Delay recording time (ms)'], ['muts', 110, 'i2', 'Mute start'],
+  ['mute', 112, 'i2', 'Mute end'], ['ns', 114, 'u2', 'Number of samples'], ['dt', 116, 'u2', 'Sample interval (µs)'],
+  ['gain', 118, 'i2', 'Gain type'], ['igc', 120, 'i2', 'Instrument gain'], ['sfs', 126, 'i2', 'Sweep freq. start (Hz)'],
+  ['sfe', 128, 'i2', 'Sweep freq. end (Hz)'], ['slen', 130, 'i2', 'Sweep length (ms)'], ['styp', 132, 'i2', 'Sweep type'],
+  ['lcf', 148, 'i2', 'Low-cut frequency'], ['hcf', 150, 'i2', 'High-cut frequency'], ['year', 156, 'i2', 'Year'],
+  ['day', 158, 'i2', 'Day of year'], ['hour', 160, 'i2', 'Hour'], ['minute', 162, 'i2', 'Minute'], ['sec', 164, 'i2', 'Second'],
+  ['timbas', 166, 'i2', 'Time basis code'], ['cdpx', 180, 'i4', 'CDP X'], ['cdpy', 184, 'i4', 'CDP Y'],
+  ['iline', 188, 'i4', 'Inline'], ['xline', 192, 'i4', 'Crossline'], ['sp', 196, 'i4', 'Shotpoint'], ['scalsp', 200, 'i2', 'Shotpoint scalar']
+];
+let inspectSeq = 0;
+async function inspectTrace(num) {
+  const seg = S.seg; if (!seg || !S.file) return;
+  num = clamp(Math.round(num) || 1, 1, seg.n);
+  S.inspect = num; $('trInput').value = num;
+  const my = ++inspectSeq, off = seg.offsets[num - 1];
+  try {
+    const ab = await readFileAsArrayBuffer(S.file.slice(off, off + 240));
+    if (my !== inspectSeq) return;
+    const dv = new DataView(ab), le = seg.L.le, hide = $('hideZero').checked;
+    const rows = [[`Byte offset in file`, off.toLocaleString()]];
+    TRACE_FIELDS.forEach(([key, o, t, label]) => {
+      const v = t === 'i4' ? dv.getInt32(o, le) : t === 'u2' ? dv.getUint16(o, le) : dv.getInt16(o, le);
+      if (hide && v === 0) return;
+      rows.push([`${label} · ${key} (${o + 1}–${o + (t === 'i4' ? 4 : 2)})`, v]);
     });
+    fillTable($('trTable').tBodies[0], rows);
+  } catch (e) {
+    fillTable($('trTable').tBodies[0], [['Error', `Could not read trace header: ${e.message}`, 'bad']]);
+  }
+}
+$('trInput').addEventListener('change', (e) => inspectTrace(parseInt(e.target.value, 10)));
+$('trPrev').addEventListener('click', () => inspectTrace(S.inspect - 1));
+$('trNext').addEventListener('click', () => inspectTrace(S.inspect + 1));
+$('hideZero').addEventListener('change', () => inspectTrace(S.inspect));
 
-    function parseSegy(buffer) {
-        try {
-            const dataView = new DataView(buffer);
-            const formatCode = dataView.getInt16(3224, false); 
-            
-            if (formatCode !== 5 && formatCode !== 1) {
-                alert("Unsupported format: " + formatCode + ". Use IEEE Float (5).");
-                statusTxt.textContent = "Error: Unsupported format.";
-                return;
-            }
+/* =====================================================================
+ * 8. Resize handling, global error trap, first paint
+ * ===================================================================== */
+function drawAll() { drawProfile(); drawMotion(); drawNav(); }
+let resizeTimer = 0;
+const onResize = () => {
+  cancelAnimationFrame(resizeTimer);
+  resizeTimer = requestAnimationFrame(() => {
+    if (S.seg) { if (S.view.fitted) fitView(); else { clampView(); drawProfile(); drawMotion(); scheduleDetail(); } if (S.nav.fitted) fitNav(); else drawNav(); }
+    else drawAll();
+  });
+};
+if ('ResizeObserver' in window) { 
+  const ro = new ResizeObserver(onResize); 
+  ro.observe($('profileWrap')); 
+  ro.observe($('navWrap')); 
+  ro.observe($('motionWrap'));
+}
+else window.addEventListener('resize', onResize);
 
-            let offset = 3600; 
-            globalTraces = [];
-            globalNavX = [];
-            globalNavY = [];
-            
-            statusTxt.textContent = "Extracting traces...";
+window.addEventListener('error', (e) => { addMessage('bad', `Script error: ${e.message}`); });
+window.addEventListener('unhandledrejection', (e) => { addMessage('bad', `Script error: ${(e.reason && e.reason.message) || e.reason}`); });
 
-            // Get first trace to determine sampling
-            const dataView2 = new DataView(buffer);
-            const numSamples = dataView2.getInt16(3600 + 114, false);
-            const sampleInterval = dataView2.getInt16(3600 + 116, false);
-            samplingInterval = sampleInterval > 0 ? sampleInterval / 1000000 : 1;
-
-            while (offset < buffer.byteLength) {
-                let scalar = dataView.getInt16(offset + 70, false);
-                let sx = dataView.getInt32(offset + 72, false);
-                let sy = dataView.getInt32(offset + 76, false);
-                let numSamples = dataView.getInt16(offset + 114, false);
-                
-                let mult = 1.0;
-                if (scalar < 0) mult = 1.0 / Math.abs(scalar);
-                else if (scalar > 0) mult = scalar;
-                
-                let actualX = sx * mult;
-                let actualY = sy * mult;
-                
-                if (actualX !== 0 || actualY !== 0) {
-                    globalNavX.push(actualX);
-                    globalNavY.push(actualY);
-                }
-
-                let traceData = new Float32Array(numSamples);
-                let traceOffset = offset + 240; 
-                
-                for (let i = 0; i < numSamples; i++) {
-                    traceData[i] = dataView.getFloat32(traceOffset + (i * 4), false);
-                }
-                
-                globalTraces.push(traceData);
-                offset += 240 + (numSamples * 4);
-            }
-
-            initCanvasSize();
-            buildSeismicCache();
-            resetView();
-            renderNavigation();
-            statusTxt.textContent = `Success: ${globalTraces.length} traces.`;
-
-        } catch (error) {
-            console.error(error);
-            statusTxt.textContent = "Error parsing file.";
-        }
-    }
-
-    function buildSeismicCache() {
-        if (globalTraces.length === 0) return;
-        
-        const width = globalTraces.length;
-        const height = globalTraces[0].length; 
-        
-        offscreenCanvas.width = width;
-        offscreenCanvas.height = height;
-
-        let sampleValues = [];
-        for (let i = 0; i < width; i += 10) { 
-            for (let j = 0; j < height; j += 10) {
-                sampleValues.push(Math.abs(globalTraces[i][j]));
-            }
-        }
-        sampleValues.sort((a, b) => a - b);
-        let pctIndex = Math.floor(sampleValues.length * (parseFloat(clipSlider.value) / 100));
-        let clipVal = sampleValues[pctIndex];
-
-        const imgData = offscreenCtx.createImageData(width, height);
-        let dataIndex = 0;
-        
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                let val = globalTraces[x][y];
-                
-                if (val > clipVal) val = clipVal;
-                if (val < -clipVal) val = -clipVal;
-                
-                let normalized = (val + clipVal) / (2 * clipVal);
-                let r = 0, g = 0, b = 0;
-                
-                if (normalized < 0.5) {
-                    let t = normalized * 2; 
-                    r = Math.round(16 + t * (255 - 16));  
-                    g = Math.round(78 + t * (255 - 78));  
-                    b = Math.round(139 + t * (255 - 139));
-                } else {
-                    let t = (normalized - 0.5) * 2; 
-                    r = Math.round(255 - t * (255 - 139)); 
-                    g = Math.round(255 - t * 255);         
-                    b = Math.round(255 - t * 255);         
-                }
-
-                imgData.data[dataIndex++] = r; 
-                imgData.data[dataIndex++] = g; 
-                imgData.data[dataIndex++] = b; 
-                imgData.data[dataIndex++] = 255; 
-            }
-        }
-        offscreenCtx.putImageData(imgData, 0, 0);
-    }
-
-    function drawScene() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (globalTraces.length === 0) return;
-
-        ctx.save();
-        ctx.translate(panX, panY);
-        ctx.scale(scale, scale);
-        ctx.drawImage(offscreenCanvas, 0, 0);
-        ctx.restore();
-    }
-
-    function renderNavigation() {
-        if (globalNavX.length === 0) return;
-
-        const traceLine = {
-            x: globalNavX,
-            y: globalNavY,
-            mode: 'lines',
-            name: 'Vessel Track',
-            line: {color: '#3b82f6', width: 2}
-        };
-
-        const startPoint = {
-            x: [globalNavX[0]],
-            y: [globalNavY[0]],
-            mode: 'markers',
-            name: 'Start',
-            marker: {color: '#10b981', size: 8, symbol: 'circle'}
-        };
-
-        const endPoint = {
-            x: [globalNavX[globalNavX.length - 1]],
-            y: [globalNavY[globalNavY.length - 1]],
-            mode: 'markers',
-            name: 'End',
-            marker: {color: '#ef4444', size: 8, symbol: 'square'}
-        };
-
-        const layout = {
-            margin: { t: 20, r: 30, b: 50, l: 70 },
-            xaxis: { 
-                title: 'Longitude (E)', 
-                scaleanchor: "y", 
-                scaleratio: 1, 
-                gridcolor: '#2d3748',
-                showgrid: true
-            },
-            yaxis: { 
-                title: 'Latitude (N)', 
-                gridcolor: '#2d3748',
-                showgrid: true
-            },
-            showlegend: true,
-            paper_bgcolor: '#1a1f2e',
-            plot_bgcolor: '#0f1419',
-            font: { color: '#a0aec0' },
-            legend: { bgcolor: 'rgba(26,31,46,0.8)', bordercolor: '#2d3748' }
-        };
-
-        Plotly.newPlot('navMap', [traceLine, startPoint, endPoint], layout, {responsive: true});
-    }
+// Expose parser for testing in Node / console (no side effects)
+window.SegyCore = { detectLayout, parseSegy, ibm2ieee, decodeTextHeader };
+drawAll();
+})();
 </script>
-
 </body>
 </html>
